@@ -17,6 +17,7 @@ class RepositorySafetyTests(unittest.TestCase):
         self.assertIn(DIGEST, text)
         self.assertIn("sha256sum -c -", text)
         self.assertIn(BUNDLE, text)
+        self.assertNotIn("--chmod=0644", text)
         self.assertNotRegex(text, r"(?m)^\s*(CMD|ENTRYPOINT)\s")
 
     def test_compose_runs_one_service_and_uses_persistent_volumes(self):
