@@ -31,7 +31,7 @@ jobs:
       - name: Check image bundles webmail
         run: |
           docker run --rm --entrypoint /bin/sh webmail-service:ci -c \
-            'test -s /opt/webmail-service/bulwark-lite-stalwart.zip'
+            'set -ex; id; ls -lah /opt /opt/webmail-service || true; find /opt -maxdepth 3 -type f -print; test -s /opt/webmail-service/bulwark-lite-stalwart.zip'
           docker image inspect webmail-service:ci --format '{{.Config.Entrypoint}}'
       - name: Container smoke test
         run: |
