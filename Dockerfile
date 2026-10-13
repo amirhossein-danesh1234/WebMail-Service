@@ -15,6 +15,6 @@ LABEL org.opencontainers.image.title="amirhossein-danesh mail" \
       org.opencontainers.image.description="Single-container Stalwart + Bulwark Lite" \
       org.opencontainers.image.source="https://github.com/amirhossein-danesh1234/WebMail-Service" \
       org.opencontainers.image.licenses="AGPL-3.0-only"
-# Preserve upstream ENTRYPOINT, USER and healthcheck.
-COPY --from=bulwark-artifact --chown=2000:2000 --chmod=0644 \
+# Preserve upstream ENTRYPOINT, USER and healthcheck. Do not chmod the new directory to 0644.
+COPY --from=bulwark-artifact --chown=2000:2000 \
     /out/bulwark-lite-stalwart.zip /opt/webmail-service/bulwark-lite-stalwart.zip
