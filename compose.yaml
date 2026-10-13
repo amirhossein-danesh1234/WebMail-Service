@@ -1,0 +1,31 @@
+name: webmail-service
+services:
+  mail:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: webmail-service:0.1.0
+    restart: unless-stopped
+    environment:
+      STALWART_PUBLIC_URL: ${STALWART_PUBLIC_URL:-https://mail.amirhossein-danesh.ir}
+    # Default: setup remains private to the host / SSH tunnel.
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - stalwart_config:/etc/stalwart
+      - stalwart_data:/var/lib/stalwart
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    pids_limit: 256
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+volumes:
+  stalwart_config:
+  stalwart_data:

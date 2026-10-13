@@ -1,0 +1,48 @@
+name: Build and verify single image
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install validator dependency
+        run: python -m pip install PyYAML==6.0.2
+      - name: Validate repository invariants
+        run: python -m unittest discover -s tests -v
+      - name: Validate Compose
+        run: docker compose config -q
+      - name: Build unified image with verified Bulwark ZIP
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: webmail-service:ci
+      - name: Check image bundles webmail
+        run: |
+          docker run --rm --entrypoint /bin/sh webmail-service:ci -c \
+            'set -eu; test -x /opt/webmail-service; test -r /opt/webmail-service/bulwark-lite-stalwart.zip; test -s /opt/webmail-service/bulwark-lite-stalwart.zip'
+          docker image inspect webmail-service:ci --format '{{.Config.Entrypoint}}'
+      - name: Container smoke test
+        run: |
+          docker run -d --name webmail-smoke -p 127.0.0.1:18080:8080 webmail-service:ci
+          trap 'docker logs webmail-smoke || true; docker rm -f webmail-smoke >/dev/null || true' EXIT
+          for i in $(seq 1 45); do
+            if curl -fsS --max-time 3 http://127.0.0.1:18080/healthz/live >/dev/null; then
+              echo 'Stalwart HTTP health check passed'
+              exit 0
+            fi
+            sleep 2
+          done
+          echo 'Stalwart health endpoint did not become ready'
+          exit 1

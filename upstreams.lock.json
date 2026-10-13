@@ -1,0 +1,15 @@
+{
+  "stalwart": {
+    "repository": "https://github.com/stalwartlabs/stalwart.git",
+    "version": "v0.16.26",
+    "commit": "18f4e9505027d790fd7e9fdad7f922be6719101d",
+    "runtime_image": "stalwartlabs/stalwart:v0.16.26"
+  },
+  "bulwark_lite": {
+    "repository": "https://github.com/bulwarkmail/webmail.git",
+    "version": "1.14.2",
+    "commit": "5f2d26f2e1902b3010415f478615765299c6fd31",
+    "release_asset": "bulwark-lite-stalwart.zip",
+    "release_sha256": "3846b16d051168d8d7b22f2eed22c4a391ef382edf9c0fd0d3020040cf6eb6bf"
+  }
+}
