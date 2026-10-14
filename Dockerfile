@@ -10,7 +10,7 @@ RUN apk add --no-cache ca-certificates curl \
        -o /out/bulwark-lite-stalwart.zip \
     && echo "${BULWARK_SHA256}  /out/bulwark-lite-stalwart.zip" | sha256sum -c -
 
-FROM stalwartlabs/stalwart:v0.16.26
+FROM stalwartlabs/stalwart:v0.16.26@sha256:254ce5d7f3dbe4bb628ce2c7912e664ecb1c3466db79907f4a44d9a00117776b
 LABEL org.opencontainers.image.title="amirhossein-danesh mail" \
       org.opencontainers.image.description="Single-container Stalwart + Bulwark Lite" \
       org.opencontainers.image.source="https://github.com/amirhossein-danesh1234/WebMail-Service" \
