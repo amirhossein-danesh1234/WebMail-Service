@@ -78,7 +78,7 @@ def main():
         call("x:Account/set", {"create": {"mailbox": {
             "@type": "User", "name": "me", "domainId": domain_id,
             "description": "Site owner mailbox", "roles": {"@type": "User"},
-            "credentials": [{"@type": "Password", "secret": user["secret"]}]}}})
+            "credentials": {"0": {"@type": "Password", "secret": user["secret"]}}}}})
         print(name + ": owner mailbox created")
     for name, domain in domains.items():
         if name in DOMAINS:
