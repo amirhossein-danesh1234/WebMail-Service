@@ -1,7 +1,9 @@
-# OPT-IN ONLY. Validate TLS, provider SMTP restrictions, PTR and mail policy before use.
+# OPT-IN ONLY. Configure valid TLS and relay protection before use.
+# Provider TCP 25 and PTR must also pass before claiming Internet delivery.
 services:
   mail:
     ports:
       - "25:25"       # Internet-to-server SMTP
+      - "465:465"     # Submission implicit TLS
       - "587:587"     # Submission STARTTLS
       - "993:993"     # IMAPS

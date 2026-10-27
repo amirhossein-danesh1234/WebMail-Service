@@ -32,7 +32,7 @@ class RepositorySafetyTests(unittest.TestCase):
     def test_public_ports_must_be_explicit_opt_in(self):
         compose = yaml.safe_load((ROOT / "compose.public.yaml").read_text())
         self.assertSetEqual(set(compose["services"]["mail"]["ports"]), {
-            "25:25", "587:587", "993:993"
+            "25:25", "465:465", "587:587", "993:993"
         })
 
     def test_docs_register_local_verified_bundle(self):
