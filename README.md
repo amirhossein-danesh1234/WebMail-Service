@@ -60,6 +60,9 @@ The above override additionally publishes TCP 25, 587, and 993. Keep 80/443 on t
 
 See [deployment (Persian)](docs/deployment-fa.md), [architecture](docs/architecture.md), [security checklist](docs/security.md), and [third-party notices](NOTICE.md).
 
+The existing VPS also hosts `mail.unilrn.ir` and `mail.kappaut.ir` on the same
+mail engine. See [three-domain deployment and remaining delivery gates](docs/three-domains-fa.md).
+
 ## Audit and verification
 
 ```bash
