@@ -11,7 +11,6 @@ from pathlib import Path
 import urllib.request
 
 HOST = "mx.amirhossein-danesh.ir"
-PUBLIC_URL = "https://mail.amirhossein-danesh.ir"
 CERTIFICATE = Path("/etc/letsencrypt/live/webmail-mx")
 
 
@@ -47,7 +46,9 @@ def main():
             "create": {"mail": certificate}})["created"]["mail"]["id"]
     settings = call("x:SystemSettings/get", {"ids": ["singleton"]})["list"][0]
     services = settings["services"]
-    for protocol in ("imap", "smtp", "pop3", "managesieve"):
+    for protocol in ("pop3", "managesieve"):
+        services.pop(protocol, None)
+    for protocol in ("imap", "smtp"):
         services[protocol] = {"hostname": HOST, "cleartext": protocol == "smtp"}
     for protocol in ("jmap", "caldav", "carddav", "webdav"):
         services[protocol] = {"hostname": "mail.amirhossein-danesh.ir", "cleartext": False}

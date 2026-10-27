@@ -62,6 +62,8 @@ See [deployment (Persian)](docs/deployment-fa.md), [architecture](docs/architect
 
 The existing VPS also hosts `mail.unilrn.ir` and `mail.kappaut.ir` on the same
 mail engine. See [three-domain deployment and remaining delivery gates](docs/three-domains-fa.md).
+For the current public SMTP/IMAP configuration, certificate renewal and provider
+TCP 25/PTR blockers, see [Internet mail deployment](docs/internet-mail-fa.md).
 
 ## Audit and verification
 
