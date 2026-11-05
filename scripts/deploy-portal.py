@@ -27,6 +27,8 @@ def run(*args, **kwargs):
 
 
 def main():
+    if Path(sys.prefix) != Path('/opt/webmail-portal-venv') and Path(PYTHON).exists():
+        os.execv(PYTHON, [PYTHON, str(Path(__file__).resolve()), *sys.argv[1:]])
     parser = argparse.ArgumentParser()
     parser.add_argument('--install-proxy', action='store_true')
     args = parser.parse_args()
