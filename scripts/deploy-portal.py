@@ -53,6 +53,7 @@ def main():
         account = pwd.getpwnam('webmail-portal')
     DATA.mkdir(mode=0o700, exist_ok=True)
     CONFIG.mkdir(mode=0o750, exist_ok=True)
+    os.chmod(CONFIG, 0o750)
     os.chown(DATA, account.pw_uid, account.pw_gid)
     os.chown(CONFIG, 0, account.pw_gid)
     config_file = CONFIG / 'portal.env'

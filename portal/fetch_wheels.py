@@ -10,6 +10,36 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
+
+
+def download(curl, item, path):
+    """Bounded range requests tolerate this network's stalled large responses."""
+    size = item['size']
+    block = 16384
+    ranges = [(start, min(start + block, size) - 1) for start in range(0, size, block)]
+
+    def chunk(bounds):
+        start, end = bounds
+        data = b''
+        for attempt in range(4):
+            result = subprocess.run([curl, '-4fsS', '--http1.1', '--max-time', '15',
+                '--range', f'{start + len(data)}-{end}', item['url']], capture_output=True)
+            remaining = end - start + 1 - len(data)
+            if len(result.stdout) > remaining:
+                raise RuntimeError('Server did not honor requested range')
+            data += result.stdout
+            if len(data) == end - start + 1:
+                return data
+        raise RuntimeError('Incomplete package range')
+
+    temp = path.with_suffix('.partial')
+    with ThreadPoolExecutor(max_workers=8) as pool, temp.open('wb') as handle:
+        for index, data in enumerate(pool.map(chunk, ranges)):
+            handle.write(data)
+            if index and index % 128 == 0:
+                print(f'Progress: {path.name} {min((index + 1) * block, size)}/{size}', flush=True)
+    temp.replace(path)
 
 try:
     from packaging.tags import sys_tags
@@ -54,8 +84,7 @@ def main():
         expected = item['digests']['sha256']
         if not path.exists() or hashlib.sha256(path.read_bytes()).hexdigest() != expected:
             print('Downloading: ' + item['filename'], flush=True)
-            subprocess.run([curl, '-4fsS', '--retry', '2', '--max-time', '300',
-                            item['url'], '-o', str(path)], check=True)
+            download(curl, item, path)
         if hashlib.sha256(path.read_bytes()).hexdigest() != expected:
             raise SystemExit('Checksum mismatch: ' + path.name)
         manifest.append({'package': package, 'version': version,
