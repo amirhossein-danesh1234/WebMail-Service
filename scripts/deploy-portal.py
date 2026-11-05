@@ -48,7 +48,8 @@ def main():
     backup.mkdir(mode=0o700)
     for source in ['/etc/nginx/sites-available/webmail', '/etc/nginx/sites-available/webmail-admin',
                    '/etc/nginx/snippets/webmail-portal-locations.conf', '/etc/systemd/system/webmail-portal.service',
-                   '/etc/nginx/sites-available/webmail-portal-tls']:
+                   '/etc/nginx/sites-available/webmail-portal-tls',
+                   '/etc/nginx/conf.d/webmail-cors.conf', '/etc/nginx/snippets/webmail-cors-headers.conf']:
         source = Path(source)
         if source.exists():
             shutil.copy2(source, backup / source.name)
@@ -124,13 +125,23 @@ def main():
         link = Path('/etc/nginx/sites-enabled/webmail-admin')
         tls = Path('/etc/nginx/sites-available/webmail-portal-tls')
         tls_link = Path('/etc/nginx/sites-enabled/webmail-portal-tls')
-        previous = {p: p.read_bytes() if p.exists() else None for p in (webmail, snippet, admin, tls)}
+        cors_map = Path('/etc/nginx/conf.d/webmail-cors.conf')
+        cors_headers = Path('/etc/nginx/snippets/webmail-cors-headers.conf')
+        previous = {p: p.read_bytes() if p.exists() else None for p in (webmail, snippet, admin, tls, cors_map, cors_headers)}
         had_link = link.exists()
         had_tls_link = tls_link.exists()
         try:
             shutil.copy2(ROOT / 'deploy/nginx-portal-locations.conf', snippet)
+            shutil.copy2(ROOT / 'deploy/nginx-webmail-cors.conf', cors_map)
+            shutil.copy2(ROOT / 'deploy/nginx-webmail-cors-headers.conf', cors_headers)
             shutil.copy2(ROOT / 'deploy/nginx-mail-admin.conf', admin)
-            webmail.write_text(before.replace(old, include) if include not in before else before)
+            updated = before.replace(old, include) if include not in before else before
+            cors_include = 'include /etc/nginx/snippets/webmail-cors-headers.conf;'
+            if cors_include not in updated:
+                if updated.count('    location / {\n') != 1:
+                    raise RuntimeError('Unexpected Stalwart fallback location; no proxy activation')
+                updated = updated.replace('    location / {\n', '    location / {\n        ' + cors_include + '\n')
+            webmail.write_text(updated)
             if not had_link:
                 link.symlink_to(admin)
             if args.enable_tls:
