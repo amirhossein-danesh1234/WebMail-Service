@@ -94,7 +94,7 @@ def main():
         os.chmod(path, 0o755 if path.is_dir() else 0o644)
     shutil.copy2(ROOT / 'deploy/webmail-portal.service', '/etc/systemd/system/webmail-portal.service')
     run('systemctl', 'daemon-reload')
-    run('systemctl', 'enable', '--now', 'webmail-portal.service')
+    run('systemctl', 'enable', 'webmail-portal.service')
     run('systemctl', 'restart', 'webmail-portal.service')
     if args.install_proxy:
         # Preserve custom server configuration: only replace the known root redirect.
