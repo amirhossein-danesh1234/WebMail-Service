@@ -14,6 +14,7 @@ import shutil
 import sqlite3
 import subprocess
 import sys
+import ssl
 from datetime import datetime, timezone
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -31,15 +32,21 @@ def main():
         os.execv(PYTHON, [PYTHON, str(Path(__file__).resolve()), *sys.argv[1:]])
     parser = argparse.ArgumentParser()
     parser.add_argument('--install-proxy', action='store_true')
+    parser.add_argument('--enable-tls', action='store_true')
     args = parser.parse_args()
     if os.geteuid() != 0 or ROOT != Path('/opt/webmail-service'):
         raise SystemExit('Run as root in /opt/webmail-service after git pull')
+    covered = set()
+    if args.enable_tls:
+        certificate = ssl._ssl._test_decode_cert('/etc/letsencrypt/live/webmail-portal/cert.pem')
+        covered = {value for kind, value in certificate['subjectAltName'] if kind == 'DNS'}
     os.umask(0o077)
     stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
     backup = Path('/root/webmail-portal-backup-' + stamp)
     backup.mkdir(mode=0o700)
     for source in ['/etc/nginx/sites-available/webmail', '/etc/nginx/sites-available/webmail-admin',
-                   '/etc/nginx/snippets/webmail-portal-locations.conf', '/etc/systemd/system/webmail-portal.service']:
+                   '/etc/nginx/snippets/webmail-portal-locations.conf', '/etc/systemd/system/webmail-portal.service',
+                   '/etc/nginx/sites-available/webmail-portal-tls']:
         source = Path(source)
         if source.exists():
             shutil.copy2(source, backup / source.name)
@@ -98,7 +105,7 @@ def main():
     run('systemctl', 'daemon-reload')
     run('systemctl', 'enable', 'webmail-portal.service')
     run('systemctl', 'restart', 'webmail-portal.service')
-    if args.install_proxy:
+    if args.install_proxy or args.enable_tls:
         # Preserve custom server configuration: only replace the known root redirect.
         webmail = Path('/etc/nginx/sites-available/webmail')
         before = webmail.read_text()
@@ -109,14 +116,32 @@ def main():
         snippet = Path('/etc/nginx/snippets/webmail-portal-locations.conf')
         admin = Path('/etc/nginx/sites-available/webmail-admin')
         link = Path('/etc/nginx/sites-enabled/webmail-admin')
-        previous = {p: p.read_bytes() if p.exists() else None for p in (webmail, snippet, admin)}
+        tls = Path('/etc/nginx/sites-available/webmail-portal-tls')
+        tls_link = Path('/etc/nginx/sites-enabled/webmail-portal-tls')
+        previous = {p: p.read_bytes() if p.exists() else None for p in (webmail, snippet, admin, tls)}
         had_link = link.exists()
+        had_tls_link = tls_link.exists()
         try:
             shutil.copy2(ROOT / 'deploy/nginx-portal-locations.conf', snippet)
             shutil.copy2(ROOT / 'deploy/nginx-mail-admin.conf', admin)
             webmail.write_text(before.replace(old, include) if include not in before else before)
             if not had_link:
                 link.symlink_to(admin)
+            if args.enable_tls:
+                hosts = [h for h in ('mail.amirhossein-danesh.ir', 'mail.kappaut.ir', 'mail.unilrn.ir') if h in covered]
+                if not hosts:
+                    raise RuntimeError('No user hostname is covered by certificate')
+                tls.write_text((ROOT / 'deploy/nginx-portal-tls.conf').read_text().replace('@MAIL_HOSTS@', ' '.join(hosts)))
+                if not had_tls_link:
+                    tls_link.symlink_to(tls)
+                if 'mail-admin.amirhossein-danesh.ir' in covered:
+                    template = admin.read_text().replace('listen 80;', 'listen 443 ssl;').replace('listen [::]:80;', 'listen [::]:443 ssl;')
+                    template = template.replace('    absolute_redirect off;',
+                        '    ssl_certificate /etc/letsencrypt/live/webmail-portal/fullchain.pem;\n'
+                        '    ssl_certificate_key /etc/letsencrypt/live/webmail-portal/privkey.pem;\n'
+                        '    ssl_protocols TLSv1.2 TLSv1.3;\n    absolute_redirect off;')
+                    with tls.open('a') as handle:
+                        handle.write('\n' + template)
             run('nginx', '-t')
             run('systemctl', 'reload', 'nginx')
         except Exception:
@@ -127,6 +152,8 @@ def main():
                     path.write_bytes(content)
             if not had_link:
                 link.unlink(missing_ok=True)
+            if not had_tls_link:
+                tls_link.unlink(missing_ok=True)
             raise
     print('Portal provisioned; backup: ' + str(backup))
     print('Credentials remain in a root-only file. Public DNS/HTTPS must be verified separately.')
