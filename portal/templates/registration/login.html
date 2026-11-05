@@ -1,0 +1,4 @@
+{% extends 'base.html' %}{% block title %}ورود به حساب اصلی{% endblock %}{% block content %}
+<section class="auth"><div class="eyebrow">دسترسی خصوصی</div><h1>ورود به حساب اصلی</h1><p class="muted">حساب شما توسط ادمین ساخته می‌شود. پس از ورود، صندوق‌های ایمیلتان را متصل کنید.</p>
+<form method="post">{% csrf_token %}{{ form.as_p }}{% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}<button>ورود</button></form>
+<p class="muted small">حساب ندارید یا رمز را فراموش کرده‌اید؟ از ادمین لینک دعوت یا تعیین رمز بخواهید.</p><a href="/webmail/">ورود مستقیم به صندوق در وب‌میل کامل</a></section>{% endblock %}

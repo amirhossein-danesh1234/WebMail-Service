@@ -1,0 +1,1 @@
+{% extends 'base.html' %}{% block content %}<section class="form-panel"><a href="/">← صندوق‌ها</a><h1>{{ title }}</h1><p class="muted">{{ hint }}</p><form method="post" enctype="multipart/form-data">{% csrf_token %}{{ form.as_p }}<button>ثبت</button></form></section>{% endblock %}

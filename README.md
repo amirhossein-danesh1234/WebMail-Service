@@ -67,6 +67,10 @@ TCP 25/PTR blockers, see [Internet mail deployment](docs/internet-mail-fa.md).
 
 ## Audit and verification
 
+For the invite-only user portal and separate three-domain administration host,
+see [portal deployment and operation (Persian)](docs/portal-fa.md). This optional
+loopback service preserves the existing Stalwart container and Bulwark client.
+
 ```bash
 ./scripts/fetch-upstreams.sh   # clones exact tagged source and verifies Git SHAs
 python3 -m pip install -r requirements-dev.txt

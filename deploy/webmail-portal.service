@@ -1,0 +1,26 @@
+[Unit]
+Description=Invite-only webmail account portal
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+User=webmail-portal
+Group=webmail-portal
+WorkingDirectory=/opt/webmail-service/portal
+EnvironmentFile=/etc/webmail-portal/portal.env
+ExecStart=/opt/webmail-portal-venv/bin/gunicorn mailportal.wsgi:application --bind 127.0.0.1:8091 --workers 2 --threads 2 --timeout 90 --max-requests 500 --max-requests-jitter 50 --error-logfile -
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/webmail-portal
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+MemoryMax=384M
+TasksMax=32
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,6 @@
+{% load static %}<!doctype html>
+<html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{% block title %}پرتال ایمیل{% endblock %}</title><link rel="stylesheet" href="{% static 'portal.css' %}"></head>
+<body><header><a class="brand" href="/">پرتال ایمیل <span>MAIL</span></a>{% if user.is_authenticated %}<nav><span>{{ user.username }}</span><a href="{% url 'password_change' %}">تغییر رمز</a><form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="quiet">خروج</button></form></nav>{% endif %}</header>
+<main>{% for message in messages %}<div class="notice {{ message.tags }}" role="status">{{ message }}</div>{% endfor %}{% block content %}{% endblock %}</main>
+<footer>صندوق‌های شما در Stalwart نگهداری می‌شوند.</footer></body></html>
