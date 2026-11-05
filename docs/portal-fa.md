@@ -53,10 +53,21 @@ python3 scripts/deploy-portal.py
 در `/root/webmail-portal-admin-credentials.json` است و چاپ نمی‌شود.
 برای فعال‌سازی proxy پس از بررسی واقعی، `python3 scripts/deploy-portal.py --install-proxy`
 اجرا شود. Nginx موجود تست و reload می‌شود؛ سرویس ایمیل restart نمی‌شود.
-قالب فعلی مانند زیرساخت قبلی برای Arvan HTTPS edge با origin HTTP است.
-برای رکورد DNS-only ابتدا گواهی معتبر روی origin و server block پورت ۴۴۳
-لازم است؛ صرف ساخت رکورد A، HTTPS مستقیم را فعال نمی‌کند. برای پایان‌دادن
-HTTP میان CDN و origin، گواهی origin و حالت HTTPS معتبر در پنل آروان لازم است.
+قالب HTTP با مسیر مستقل ACME فراهم است. پس از تأیید رسیدن challenge عمومی
+به سرور، گواهی origin برای نام‌های منتشرشده صادر و TLS فعال می‌شود:
+
+```bash
+certbot certonly --webroot -w /var/www/webmail-acme --cert-name webmail-portal --expand \
+  -d mail.amirhossein-danesh.ir -d mail.kappaut.ir -d mail.unilrn.ir \
+  -d mail-admin.amirhossein-danesh.ir --non-interactive --agree-tos
+python3 scripts/deploy-portal.py --enable-tls
+```
+
+اسکریپت فقط نام‌های پوشش‌داده‌شده توسط گواهی را روی ۴۴۳ فعال می‌کند. پس از
+فعال‌شدن TLS، استقرارهای بعدی آن را حفظ و بروزرسانی می‌کنند. hook تمدید
+`/etc/letsencrypt/renewal-hooks/deploy/webmail-portal` فقط Nginx را تست و reload
+می‌کند؛ گواهی و سرویس SMTP مستقل‌اند. حالت اعتبارسنجی origin در داشبورد CDN
+از روی وجود گواهی اثبات نمی‌شود و باید جدا بررسی شود.
 
 محیط محرمانه: `/etc/webmail-portal/portal.env` با مالک `root:webmail-portal` و mode 0640.
 دیتابیس: `/var/lib/webmail-portal/portal.sqlite3` با mode 0600؛ هر دو باید با هم

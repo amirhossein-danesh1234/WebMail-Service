@@ -36,6 +36,8 @@ def main():
     args = parser.parse_args()
     if os.geteuid() != 0 or ROOT != Path('/opt/webmail-service'):
         raise SystemExit('Run as root in /opt/webmail-service after git pull')
+    if Path('/etc/nginx/sites-enabled/webmail-portal-tls').exists():
+        args.enable_tls = True  # Preserve and update an already-active TLS deployment.
     covered = set()
     if args.enable_tls:
         certificate = ssl._ssl._test_decode_cert('/etc/letsencrypt/live/webmail-portal/cert.pem')
@@ -105,6 +107,10 @@ def main():
     run('systemctl', 'daemon-reload')
     run('systemctl', 'enable', 'webmail-portal.service')
     run('systemctl', 'restart', 'webmail-portal.service')
+    hook = Path('/etc/letsencrypt/renewal-hooks/deploy/webmail-portal')
+    hook.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(ROOT / 'deploy/renew-portal-certificate.sh', hook)
+    os.chmod(hook, 0o755)
     if args.install_proxy or args.enable_tls:
         # Preserve custom server configuration: only replace the known root redirect.
         webmail = Path('/etc/nginx/sites-available/webmail')
