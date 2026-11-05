@@ -1,0 +1,78 @@
+{
+  "status": "APPLIED_BY_USER_VERIFIED_20261105",
+  "purpose": "Recorded public Stalwart authentication TXT values; MX cutover status is documented separately in RESULTS.fa.md",
+  "records": [
+    {
+      "domain": "amirhossein-danesh.ir",
+      "name": "v1-ed25519-20261014._domainkey.amirhossein-danesh.ir",
+      "type": "TXT",
+      "value": "v=DKIM1; k=ed25519; h=sha256; p=0Wp/uNJyRBlh8/nk3A4+lKzViysEKmgiLlIZMR3I8/c=",
+      "ttl": 120
+    },
+    {
+      "domain": "amirhossein-danesh.ir",
+      "name": "v1-rsa-20261014._domainkey.amirhossein-danesh.ir",
+      "type": "TXT",
+      "value": "v=DKIM1; k=rsa; h=sha256; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAs29w6e+lUMnnopLjYnRKttU4Ih/XSQxXlPwpgxuo9o/gp+HDOgXKTPuIEy0wwifVHwiIZ3jpk0e/rkhDbyJdD2/YvD94jjC2H09Z3K9JNb+vmy7SGmZFk6G8cat8w59em+EBeRVCGqimbtGJqFjpFU9nVY2H+nb1hD08aMH+DYeIhPoliksttmJOStOsURjBa3ZLZFTVO/wGHlvJyeg5BG8tQx+ZdPqbl6v5wVJoPotq2k8ubnc8h2/R4rruIjWzfCy08Xnb2uZJt/gTaemuthDqaBPlusZb+aIm4mojWGUGvIHAlyJbw80aWgeMgHT2OoRbT7sSUcqg9xo+zv5bDQIDAQAB",
+      "ttl": 120
+    },
+    {
+      "domain": "amirhossein-danesh.ir",
+      "name": "amirhossein-danesh.ir",
+      "type": "TXT",
+      "value": "v=spf1 ip4:37.152.182.250 ~all",
+      "ttl": 120
+    },
+    {
+      "domain": "unilrn.ir",
+      "name": "v1-ed25519-20261027._domainkey.unilrn.ir",
+      "type": "TXT",
+      "value": "v=DKIM1; k=ed25519; h=sha256; p=GS26ilXvgHWrMLxUeWZehsjQ0uQXY7L2l3JM+6mr7cQ=",
+      "ttl": 120
+    },
+    {
+      "domain": "unilrn.ir",
+      "name": "v1-rsa-20261027._domainkey.unilrn.ir",
+      "type": "TXT",
+      "value": "v=DKIM1; k=rsa; h=sha256; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtkREG01jP5g5w1C9jqpcCCFwK0kOQ6TLP8RAJsxs5H8LQbDFgFcgsRDS99qlTBhwDCDf6y0h2l8gAZidRfTg64pMNEVHDZdxKxtxM84WzggjObfqX4KwToAES2LsjEhG++yOGSKV/ShiGCrz9GYhE9K7x32pRRSc3InG6043FhNTAiC/vEtpARx6wBQNxbblAWo+WQqV8BtgfIAaFdU1bFG8Dea5UsnVDtj5Ay1L6TMuxl7ccP5VEtaOLgP8K4A+/Zu4QQkQzX88sSfSMeB4ZDRO365oey5kelOBdt/n348g79bhkmZ4L24xfVWdky4IskV7vxXSdsYnQNh2Fg5ErQIDAQAB",
+      "ttl": 120
+    },
+    {
+      "domain": "unilrn.ir",
+      "name": "unilrn.ir",
+      "type": "TXT",
+      "value": "v=spf1 ip4:37.152.182.250 ~all",
+      "ttl": 120
+    },
+    {
+      "domain": "kappaut.ir",
+      "name": "v1-ed25519-20261027._domainkey.kappaut.ir",
+      "type": "TXT",
+      "value": "v=DKIM1; k=ed25519; h=sha256; p=8WgljmmK32/Slp6P9qtf/jR1iImZdJdZ9fOCnHZokh8=",
+      "ttl": 120
+    },
+    {
+      "domain": "kappaut.ir",
+      "name": "v1-rsa-20261027._domainkey.kappaut.ir",
+      "type": "TXT",
+      "value": "v=DKIM1; k=rsa; h=sha256; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAzk9Ddbuj3MWOjZaaRJNU0jQ8McdtUoUaal25LM7bGFKxmVT6ziqZrYRCrjn3OCY46GlU7oPWj3yF9Lx8Fk2SySuFPE/mvuXmqu4xqTTod7/A8YLigSvE75WETRjd6oId/VNVLv2z0g53D32KY+rI8LyKNtKC4tVbCAMh4XHI+7VqTcNuZdEC1r6CDl7T7usiogWkPamOI4QAJTDy7fBq1AdvOFgBRJNS65yHr4AdirC3gjjx3aFWmzUpP2DVmFoC4kKobja0o6ah1gNDL0ytBN6vkKQ8pIoATIRjwa8LaD9ghsITlXe1wy+lzuT+fj3yfqfLpzsRCsdOzYw+96IIsQIDAQAB",
+      "ttl": 120
+    },
+    {
+      "domain": "kappaut.ir",
+      "name": "kappaut.ir",
+      "type": "TXT",
+      "value": "v=spf1 ip4:37.152.182.250 ~all",
+      "ttl": 120
+    },
+    {
+      "domain": "kappaut.ir",
+      "name": "_dmarc.kappaut.ir",
+      "type": "TXT",
+      "value": "v=DMARC1; p=none;",
+      "ttl": 120
+    }
+  ],
+  "mx_changes": [],
+  "records_to_delete": []
+}
