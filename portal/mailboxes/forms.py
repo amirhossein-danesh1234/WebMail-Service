@@ -49,3 +49,30 @@ class ComposeForm(forms.Form):
         if value and value.size > 10 * 1024 * 1024:
             raise ValidationError('اندازهٔ پیوست بیش از ۱۰ مگابایت است.')
         return value
+class WorkspaceComposeForm(ComposeForm):
+    cc = forms.CharField(label='رونوشت', max_length=2000, required=False)
+    bcc = forms.CharField(label='رونوشت پنهان', max_length=2000, required=False)
+
+    def __init__(self, *args, saving_draft=False, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.order_fields(['to', 'cc', 'bcc', 'subject', 'body', 'attachment', 'nonce'])
+        for name in ('to', 'subject', 'body'):
+            self.fields[name].required = not saving_draft
+
+    def clean_to(self):
+        value = self.cleaned_data['to']
+        return recipients(value) if value else []
+
+    def clean_cc(self):
+        value = self.cleaned_data['cc']
+        return recipients(value) if value else []
+
+    def clean_bcc(self):
+        value = self.cleaned_data['bcc']
+        return recipients(value) if value else []
+
+    def clean(self):
+        data = super().clean()
+        if sum(len(data.get(name, [])) for name in ('to', 'cc', 'bcc')) > 20:
+            raise ValidationError('حداکثر ۲۰ گیرنده وارد کنید.')
+        return data

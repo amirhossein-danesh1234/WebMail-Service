@@ -1,0 +1,21 @@
+{% extends 'workspace.html' %}
+{% block workspace_main %}
+<section class="mail-compose">
+  <div class="compose-heading"><div><h1>{{ title }}</h1><span>از <bdi>{{ box.address }}</bdi></span></div><a href="{% if active_grant.can_read %}{% url 'inbox' box.pk %}{% else %}{% url 'home' %}{% endif %}">بازگشت به صندوق</a></div>
+  {% if mode == 'forward' %}<p class="compose-hint">پیام اصلی همراه پیوست‌هایش به‌صورت فایل ایمیل ارسال می‌شود.</p>{% endif %}
+  <form method="post" enctype="multipart/form-data" novalidate>
+    {% csrf_token %}{{ form.nonce }}{{ form.non_field_errors }}
+    <div class="compose-fields">
+      {% for field in form.visible_fields %}
+      <div class="compose-field compose-{{ field.name }}">{{ field.label_tag }}{{ field }}{{ field.errors }}</div>
+      {% endfor %}
+    </div>
+    <p class="compose-hint">پیش‌نویس متن در حساب خودتان ذخیره می‌شود. هنگام ارسال، پیوست را دوباره انتخاب کنید.</p>
+    <div class="compose-actions">
+      <button name="intent" value="send" type="submit">ارسال ایمیل</button>
+      <button name="intent" value="draft" type="submit" class="quiet">ذخیرهٔ پیش‌نویس</button>
+      {% if draft %}<button name="intent" value="discard" type="submit" class="quiet">حذف پیش‌نویس</button>{% endif %}
+    </div>
+  </form>
+</section>
+{% endblock %}

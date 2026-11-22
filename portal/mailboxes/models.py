@@ -1,3 +1,5 @@
+import uuid
+
 from django.conf import settings
 from django.db import models
 
@@ -43,3 +45,11 @@ class LoginWindow(models.Model):
     key = models.CharField(max_length=64, primary_key=True)
     count = models.PositiveIntegerField(default=0)
     started_at = models.DateTimeField()
+
+
+class PortalDraft(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    mailbox = models.ForeignKey(Mailbox, on_delete=models.CASCADE)
+    encrypted_content = models.TextField(editable=False)
+    updated_at = models.DateTimeField(auto_now=True)

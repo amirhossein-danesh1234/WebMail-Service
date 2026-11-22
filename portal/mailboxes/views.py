@@ -4,6 +4,7 @@ import imaplib
 import smtplib
 import uuid
 from datetime import timedelta
+from urllib.parse import urlencode
 
 from cryptography.fernet import InvalidToken
 from django.conf import settings
@@ -11,18 +12,20 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 from django.contrib.auth.views import LoginView
-from django.db import IntegrityError, models, transaction
+from django.core.paginator import Paginator
+from django.db import IntegrityError, transaction
 from django.db.models import F
 from django.http import HttpResponse, HttpResponseNotFound
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 from django.utils.decorators import method_decorator
 from django.views.decorators.debug import sensitive_post_parameters
 
-from . import mail
-from .forms import ComposeForm, ConnectForm
-from .models import LoginWindow, Mailbox, MailboxGrant, SendAttempt
+from . import mail, workspace
+from .forms import ComposeForm, ConnectForm, WorkspaceComposeForm
+from .models import LoginWindow, Mailbox, MailboxGrant, PortalDraft, SendAttempt
 
 MAIL_ERRORS = (OSError, ValueError, LookupError, imaplib.IMAP4.error, smtplib.SMTPException, InvalidToken)
 
@@ -78,10 +81,11 @@ def home(request):
             })
         return render(request, 'admin_home.html')
     if settings.MANAGED_KAPPA:
-        grants = MailboxGrant.objects.filter(user=request.user).filter(
-            models.Q(can_read=True) | models.Q(can_send=True)
-        ).select_related('mailbox').order_by('mailbox__address')
-        return render(request, 'kappa_home.html', {'grants': grants})
+        grant = workspace.grants_for(request.user).filter(can_read=True).first()
+        if grant:
+            return render_workspace(request, grant, 'inbox')
+        grant = workspace.grants_for(request.user).filter(can_send=True).first()
+        return render(request, 'workspace.html', workspace.context(request, grant))
     return render(request, 'home.html', {'boxes': Mailbox.objects.filter(owner=request.user)})
 
 
@@ -140,6 +144,8 @@ def disconnect(request, box_id):
 @login_required
 def inbox(request, box_id, folder='inbox'):
     box, grant = authorized_box(request, box_id, 'can_read')
+    if grant is not None:
+        return render_workspace(request, grant, folder)
     if folder not in ('inbox', 'sent', 'junk', 'trash'):
         return HttpResponseNotFound()
     try:
@@ -157,9 +163,84 @@ def inbox(request, box_id, folder='inbox'):
         'previous_page': page - 1 if page > 1 else None})
 
 
+def render_workspace(request, grant, folder, uid=None):
+    if folder not in mail.FOLDERS:
+        return HttpResponseNotFound()
+    data = workspace.context(request, grant, folder)
+    box = grant.mailbox
+    try:
+        page = max(1, min(100000, int(request.GET.get('page', '1'))))
+    except ValueError:
+        page = 1
+    try:
+        items, more = mail.listing(box, folder, page, query=data['query'], filter_by=data['filter_by'])
+    except MAIL_ERRORS:
+        messages.error(request, 'باز کردن پوشه یا جست‌وجو انجام نشد.')
+        items, more = [], False
+    data.update(items=items, selected=uid, next_page=page + 1 if more else None,
+                previous_page=page - 1 if page > 1 else None)
+    if uid is not None:
+        try:
+            msg, version, flags = mail.read(box, folder, uid, with_flags=True)
+            data.update(
+                opened=workspace_message(msg, uid, flags), body=mail.text_body(msg, html_as_text=True), version=version,
+                attachments=[{'index': i, 'name': p.get_filename() or 'پیوست'}
+                             for i, p in enumerate(msg.walk()) if p.get_content_disposition() == 'attachment' or p.get_filename()],
+                reply_urls=[(label, reverse('compose', args=[box.pk]) + '?' + urlencode({
+                    'source': f'{folder}/{uid}/{mode}/{version}'})) for mode, label in workspace.MODES.items()],
+            )
+        except MAIL_ERRORS:
+            messages.error(request, 'پیام در دسترس نیست یا بیش از ۲۰ مگابایت است.')
+    return render(request, 'workspace.html', data)
+
+
+def workspace_message(msg, uid, flags):
+    data = mail.message_summary(msg, uid, flags)
+    data.update(to=str(msg.get('To', '')), cc=str(msg.get('Cc', '')))
+    return data
+
+
+@login_required
+@require_POST
+def message_update(request, box_id, folder, uid):
+    if not settings.MANAGED_KAPPA or folder not in mail.FOLDERS:
+        return HttpResponseNotFound()
+    box, grant = authorized_box(request, box_id, 'can_send')
+    if not grant.can_read:
+        return HttpResponseNotFound()
+    action = request.POST.get('action', '')
+    try:
+        mail.update_message(box, folder, uid, request.POST.get('version'), action)
+    except MAIL_ERRORS:
+        messages.error(request, 'تغییر ذخیره نشد. صفحه را تازه کنید و دوباره امتحان کنید.')
+    if action in mail.MESSAGE_FLAGS:
+        return redirect('message', box_id=box_id, folder=folder, uid=uid)
+    return redirect('inbox', box_id=box_id, folder=folder)
+
+
+@login_required
+def drafts(request, box_id):
+    if not settings.MANAGED_KAPPA:
+        return HttpResponseNotFound()
+    box, grant = authorized_box(request, box_id, 'can_send')
+    items = PortalDraft.objects.filter(mailbox=box, owner=request.user).order_by('-updated_at', 'pk')
+    page = Paginator(items, 25).get_page(request.GET.get('page'))
+    entries = []
+    for draft in page:
+        try:
+            subject = workspace.decode_draft(draft).get('subject')
+        except (ValueError, InvalidToken):
+            subject = ''
+        entries.append((draft, subject or '(بدون موضوع)'))
+    data = workspace.context(request, grant, 'drafts')
+    return render(request, 'workspace.html', {**data, 'draft_entries': entries, 'draft_page': page})
+
+
 @login_required
 def message(request, box_id, folder, uid):
-    box, _ = authorized_box(request, box_id, 'can_read')
+    box, grant = authorized_box(request, box_id, 'can_read')
+    if grant is not None:
+        return render_workspace(request, grant, folder, uid)
     try:
         msg = mail.read(box, folder, uid)
         attachments = [{'index': i, 'name': p.get_filename() or 'attachment'}
@@ -196,34 +277,111 @@ def attachment(request, box_id, folder, uid, part):
         return HttpResponseNotFound()
 
 
+def compose_source(raw, box, grant):
+    if not raw:
+        return None, None
+    folder, uid, mode, version = raw.split('/')
+    if not grant.can_read or folder not in mail.FOLDERS or mode not in workspace.MODES:
+        raise ValueError('Invalid source')
+    if not uid.isascii() or not uid.isdigit() or len(uid) > 10:
+        raise ValueError('Invalid UID')
+    msg, actual, _ = mail.read(box, folder, int(uid), with_flags=True)
+    if not version or version != actual:
+        raise ValueError('Folder changed')
+    return msg, mode
+
+
 @login_required
 def compose(request, box_id):
     box, grant = authorized_box(request, box_id, 'can_send')
     return_to_inbox = grant is None or grant.can_read
-    form = ComposeForm(request.POST or None, request.FILES or None,
-                       initial={'nonce': uuid.uuid4()})
-    if request.method == 'POST' and form.is_valid():
+    is_post = request.method == 'POST'
+    draft = None
+    source, original, mode = '', None, None
+    initial = {'nonce': uuid.uuid4()}
+    saving_draft = False
+    if grant is not None:
+        draft_id = request.GET.get('draft')
+        if draft_id is not None:
+            try:
+                draft_key = uuid.UUID(draft_id)
+            except ValueError:
+                return HttpResponseNotFound()
+            draft = get_object_or_404(PortalDraft, pk=draft_key, mailbox=box, owner=request.user)
+            if is_post and request.POST.get('intent') == 'discard':
+                draft.delete()
+                messages.success(request, 'پیش‌نویس حذف شد.')
+                return redirect('drafts', box_id=box.pk)
+            try:
+                initial.update(workspace.decode_draft(draft))
+            except (InvalidToken, ValueError):
+                return HttpResponseNotFound()
+        source = initial.get('source', '') if draft else request.GET.get('source', '')
+        if source and not grant.can_read:
+            return HttpResponseNotFound()
+        try:
+            original, mode = compose_source(source, box, grant)
+            if original is not None and not draft:
+                initial.update(workspace.reply_fields(box, original, mode))
+        except MAIL_ERRORS:
+            messages.error(request, 'پیام اصلی جابه‌جا شده یا در دسترس نیست.')
+            return redirect('drafts', box_id=box.pk) if draft else redirect('inbox', box_id=box.pk)
+        saving_draft = is_post and request.POST.get('intent') == 'draft'
+        form = WorkspaceComposeForm(request.POST if is_post else None, request.FILES if is_post else None,
+                                    initial=initial, saving_draft=saving_draft)
+    else:
+        form = ComposeForm(request.POST if is_post else None, request.FILES if is_post else None, initial=initial)
+
+    if is_post and form.is_valid():
+        if saving_draft:
+            ciphertext = workspace.encode_draft(form.cleaned_data, source)
+            try:
+                if draft:
+                    updated = PortalDraft.objects.filter(pk=draft.pk, owner=request.user, mailbox=box).update(
+                        encrypted_content=ciphertext, updated_at=timezone.now())
+                    if not updated:
+                        return HttpResponseNotFound()
+                else:
+                    PortalDraft.objects.get_or_create(pk=form.cleaned_data['nonce'], owner=request.user, mailbox=box,
+                        defaults={'encrypted_content': ciphertext})
+            except IntegrityError:
+                return HttpResponseNotFound()
+            messages.success(request, 'پیش‌نویس ذخیره شد.')
+            return redirect('drafts', box_id=box.pk)
         try:
             with transaction.atomic():
-                attempt = SendAttempt.objects.create(mailbox=box, nonce=form.cleaned_data['nonce'])
+                attempt = SendAttempt.objects.create(mailbox=box, nonce=draft.pk if draft else form.cleaned_data['nonce'])
         except IntegrityError:
-            messages.error(request, 'این فرم قبلاً ثبت شده است؛ برای جلوگیری از ارسال تکراری دوباره ارسال نشد.')
+            messages.error(request, 'این فرم قبلاً ثبت شده است؛ ارسال تکرار نشد.')
             return redirect('inbox', box_id=box.pk) if return_to_inbox else redirect('home')
         try:
+            extra = {}
+            if grant is not None:
+                extra = {'cc': form.cleaned_data['cc'], 'bcc': form.cleaned_data['bcc'],
+                         'related': workspace.thread_headers(original) if mode in ('reply', 'reply-all') else None,
+                         'forward': original if mode == 'forward' else None}
             result = mail.send(box, form.cleaned_data['to'], form.cleaned_data['subject'],
-                               form.cleaned_data['body'], form.cleaned_data.get('attachment'))
+                               form.cleaned_data['body'], form.cleaned_data.get('attachment'), **extra)
         except MAIL_ERRORS:
             attempt.state = 'uncertain'
-            messages.error(request, 'ارسال تأیید نشد. پیش از ارسال دوباره، پوشهٔ ارسالی و وضعیت دریافت را بررسی کنید؛ تکرار خودکار انجام نشد.')
+            messages.error(request, 'ارسال تأیید نشد. پوشهٔ ارسالی و وضعیت دریافت را قبل از تلاش دوباره بررسی کنید.')
         else:
             attempt.state = 'accepted' if result['all_accepted'] else 'partial'
             if result['all_accepted']:
-                messages.success(request, 'سرور پیام را برای ارسال پذیرفت؛ این به‌معنی تحویل نهایی نیست.')
+                messages.success(request, 'سرور پیام را برای ارسال پذیرفت.')
             else:
                 messages.warning(request, 'سرور بعضی گیرنده‌ها را نپذیرفت؛ پیام را برای همه دوباره ارسال نکنید.')
             if not result['sent_copy']:
-                messages.warning(request, 'نسخهٔ پیام در پوشهٔ ارسالی ذخیره نشد؛ پیام را دوباره ارسال نکنید.')
-        attempt.save(update_fields=['state'])
+                messages.warning(request, 'نسخهٔ پیام در پوشهٔ ارسالی ذخیره نشد.')
+        with transaction.atomic():
+            attempt.save(update_fields=['state'])
+            if draft and attempt.state == 'accepted':
+                draft.delete()
         return redirect('inbox', box_id=box.pk, folder='sent') if return_to_inbox else redirect('home')
+    if grant is not None:
+        return render(request, 'workspace_compose.html', {
+            **workspace.context(request, grant), 'form': form, 'draft': draft, 'mode': mode,
+            'title': workspace.MODES.get(mode, 'ایمیل جدید'),
+        })
     return render(request, 'form.html', {'form': form, 'title': 'ارسال از ' + box.address,
                                          'hint': 'فرستنده فقط همین صندوق احراز هویت‌شده است.'})

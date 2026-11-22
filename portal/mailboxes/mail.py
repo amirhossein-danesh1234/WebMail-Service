@@ -7,7 +7,8 @@ import ssl
 from contextlib import contextmanager
 from email import policy
 from email.message import EmailMessage
-from email.utils import formatdate, make_msgid
+from email.utils import formatdate, make_msgid, parsedate_to_datetime
+from html.parser import HTMLParser
 
 from cryptography.fernet import Fernet
 from django.conf import settings
@@ -41,45 +42,103 @@ def connection(address, password):
             pass
 
 
+FOLDER_FLAGS = {'sent': b'\\Sent', 'junk': b'\\Junk', 'trash': b'\\Trash', 'archive': b'\\Archive'}
+FOLDERS = ('inbox', *FOLDER_FLAGS)
+SEARCH_FLAGS = {'unread': 'UNSEEN', 'starred': 'FLAGGED'}
+MESSAGE_FLAGS = {'read': ('+FLAGS.SILENT', r'(\Seen)'), 'unread': ('-FLAGS.SILENT', r'(\Seen)'),
+                 'star': ('+FLAGS.SILENT', r'(\Flagged)'), 'unstar': ('-FLAGS.SILENT', r'(\Flagged)')}
+
+
+class FolderUnavailable(ValueError):
+    pass
+
+
 def folder_name(client, kind):
     if kind == 'inbox':
         return 'INBOX'
-    flags = {'sent': b'\\Sent', 'junk': b'\\Junk', 'trash': b'\\Trash'}
-    if kind not in flags:
+    if kind not in FOLDER_FLAGS:
         raise ValueError('Unknown folder')
     status, rows = client.list()
+    if status != 'OK':
+        raise ValueError('Folder list failed')
+    archive = None
     for row in rows or []:
-        match = re.match(rb'\(([^)]*)\) "[^"]*" (.+)$', row)
-        if match and flags[kind].lower() in match.group(1).lower().split():
-            return match.group(2).decode('ascii')
-    raise ValueError('Folder unavailable')
+        if not isinstance(row, bytes):
+            continue
+        match = re.match(rb'\(([^)]*)\) (?:"[^"]*"|NIL) (.+)$', row)
+        if match:
+            name = match.group(2)
+            if FOLDER_FLAGS[kind].lower() in match.group(1).lower().split():
+                return name.decode('ascii')
+            if kind == 'archive' and name.strip(b'"').lower() == b'archive':
+                archive = name.decode('ascii')
+    if archive:
+        return archive
+    raise FolderUnavailable('Folder unavailable')
 
 
-def select(client, kind):
+def select(client, kind, *, readonly=True):
     name = folder_name(client, kind)
-    if client.select(name, readonly=True)[0] != 'OK':
-        raise ValueError('Folder unavailable')
+    if client.select(name, readonly=readonly)[0] != 'OK':
+        raise FolderUnavailable('Folder unavailable')
     return name
+
+
+def uid_validity(client):
+    _, rows = client.response('UIDVALIDITY')
+    return rows[0].decode('ascii') if rows and isinstance(rows[0], bytes) and rows[0].isdigit() else ''
+
+
+def update_message(box, kind, uid, version, action):
+    with connection(box.address, unseal(box)) as client:
+        select(client, kind, readonly=False)
+        if not version or version != uid_validity(client):
+            raise ValueError('Folder changed')
+        if action in MESSAGE_FLAGS:
+            status, _ = client.uid('store', str(uid), *MESSAGE_FLAGS[action])
+        elif action in ('inbox', 'archive', 'trash', 'junk') and action != kind:
+            try:
+                target = folder_name(client, action)
+            except FolderUnavailable:
+                if action != 'archive':
+                    raise
+                client.create('Archive')
+                target = folder_name(client, action)
+            status, _ = client.uid('move', str(uid), target)
+        else:
+            raise ValueError('Unknown message action')
+        if status != 'OK':
+            raise ValueError('IMAP update failed')
 
 
 def raw_part(rows):
     return next((row[1] for row in rows if isinstance(row, tuple)), None)
 
 
-def listing(box, kind, page):
+def listing(box, kind, page, *, query='', filter_by=''):
     with connection(box.address, unseal(box)) as client:
-        select(client, kind)
-        status, rows = client.uid('search', None, 'ALL')
+        try:
+            select(client, kind)
+        except FolderUnavailable:
+            if kind == 'archive':
+                return [], False
+            raise
+        search_keys = [SEARCH_FLAGS.get(filter_by, 'ALL')]
+        if query:
+            # Use an IMAP literal so that user text is never interpreted as a command.
+            search_keys = ['CHARSET', 'UTF-8', *search_keys, 'TEXT']
+            client.literal = query.encode('utf-8')
+        status, rows = client.uid('search', *search_keys)
         if status != 'OK':
             raise ValueError('Search failed')
-        ids = list(reversed(rows[0].split()))
+        ids = list(reversed((rows[0] or b'').split()))
         selected = ids[(page - 1) * 25:page * 25]
         messages = {}
         if selected:
-            status, data = client.uid('fetch', b','.join(selected), '(UID BODY.PEEK[HEADER.FIELDS (FROM TO SUBJECT DATE)] FLAGS)')
+            status, data = client.uid('fetch', b','.join(selected), '(UID FLAGS BODY.PEEK[HEADER.FIELDS (FROM TO SUBJECT DATE)])')
             if status != 'OK':
                 raise ValueError('Fetch failed')
-            for row in data:
+            for index, row in enumerate(data):
                 if not isinstance(row, tuple):
                     continue
                 match = re.search(rb'\bUID (\d+)', row[0])
@@ -87,41 +146,98 @@ def listing(box, kind, page):
                     continue
                 msg = email.message_from_bytes(row[1], policy=policy.default)
                 uid = match.group(1)
-                messages[uid] = {'uid': uid.decode(), 'subject': str(msg.get('Subject', '(بدون موضوع)')),
-                                 'sender': str(msg.get('From', '')), 'date': str(msg.get('Date', ''))}
+                remainder = data[index + 1] if index + 1 < len(data) else None
+                flags = imaplib.ParseFlags(row[0] + (remainder if isinstance(remainder, bytes) else b''))
+                messages[uid] = message_summary(msg, uid.decode(), flags)
         return [messages[uid] for uid in selected if uid in messages], len(ids) > page * 25
 
 
-def read(box, kind, uid):
+def message_summary(msg, uid, flags):
+    date = str(msg.get('Date', ''))
+    try:
+        received_at = parsedate_to_datetime(date)
+    except (ValueError, OverflowError):
+        received_at = None
+    sender_header = msg.get('From')
+    addresses = getattr(sender_header, 'addresses', ())
+    sender = addresses[0].display_name or addresses[0].addr_spec if addresses else str(sender_header or '')
+    return {'uid': uid, 'subject': str(msg.get('Subject') or '(بدون موضوع)'), 'sender': sender, 'sender_detail': str(sender_header or ''),
+            'date': date, 'received_at': received_at, 'seen': b'\\Seen' in flags, 'starred': b'\\Flagged' in flags}
+
+
+def read(box, kind, uid, *, with_flags=False):
     with connection(box.address, unseal(box)) as client:
         select(client, kind)
         status, data = client.uid('fetch', str(uid), '(RFC822.SIZE)')
-        sizes = re.findall(rb'RFC822.SIZE (\d+)', b' '.join(x for x in data if isinstance(x, bytes)))
+        sizes = re.findall(rb'RFC822.SIZE (\d+)', b' '.join(x for x in (data or []) if isinstance(x, bytes)))
         if status != 'OK' or not sizes or int(sizes[0]) > MAX_MESSAGE:
             raise ValueError('Message unavailable or larger than 20 MB')
-        status, data = client.uid('fetch', str(uid), '(BODY.PEEK[])')
-        raw = raw_part(data)
+        version = uid_validity(client) if with_flags else ''
+        status, data = client.uid('fetch', str(uid), '(FLAGS BODY.PEEK[])' if with_flags else '(BODY.PEEK[])')
+        raw = raw_part(data or [])
         if status != 'OK' or not raw or len(raw) > MAX_MESSAGE:
             raise ValueError('Message unavailable')
-        return email.message_from_bytes(raw, policy=policy.default)
+        msg = email.message_from_bytes(raw, policy=policy.default)
+        if with_flags:
+            response = b' '.join(row[0] if isinstance(row, tuple) else row for row in data if row)
+            return msg, version, imaplib.ParseFlags(response)
+        return msg
 
 
-def text_body(msg):
-    part = msg.get_body(preferencelist=('plain',))
-    if part:
-        return part.get_content()
-    # HTML is not executed or loaded; the full existing client is available separately.
-    return 'این پیام فقط نسخهٔ HTML دارد؛ برای نمایش کامل، وب‌میل کامل را باز کنید.'
+class VisibleText(HTMLParser):
+    blocks = {'br', 'div', 'p', 'li', 'tr', 'table', 'blockquote', 'section', 'h1', 'h2', 'h3'}
+    hidden = {'script', 'style', 'head', 'template'}
+
+    def __init__(self):
+        super().__init__()
+        self.parts = []
+        self.suppressed = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag in self.hidden:
+            self.suppressed.append(tag)
+        elif not self.suppressed and tag in self.blocks:
+            self.parts.append('\n')
+
+    def handle_endtag(self, tag):
+        if self.suppressed:
+            if tag == self.suppressed[-1]:
+                self.suppressed.pop()
+        elif tag in self.blocks:
+            self.parts.append('\n')
+
+    def handle_data(self, data):
+        if not self.suppressed:
+            self.parts.append(data)
 
 
-def send(box, to, subject, body, attachment=None):
+def text_body(msg, *, html_as_text=False):
+    part = msg.get_body(preferencelist=('plain', 'html') if html_as_text else ('plain',))
+    if part is None:
+        return '' if html_as_text else 'این پیام فقط نسخهٔ HTML دارد؛ برای نمایش کامل، وب‌میل کامل را باز کنید.'
+    content = part.get_content()
+    if part.get_content_subtype() == 'plain':
+        return content
+    parser = VisibleText()
+    parser.feed(content[:500000])
+    parser.close()
+    return '\n'.join(line.strip() for line in ''.join(parser.parts).splitlines() if line.strip())
+
+
+def send(box, to, subject, body, attachment=None, *, cc=(), bcc=(), related=None, forward=None):
     msg = EmailMessage()
     msg['From'] = box.address
     msg['To'] = ', '.join(to)
+    if cc:
+        msg['Cc'] = ', '.join(cc)
     msg['Subject'] = subject
+    if related:
+        msg['In-Reply-To'], msg['References'] = related
     msg['Date'] = formatdate(localtime=False)
     msg['Message-ID'] = make_msgid(domain=box.address.rsplit('@', 1)[1])
     msg.set_content(body)
+    if forward is not None:
+        msg.add_attachment(forward, filename='original.eml')
     if attachment:
         # Never trust the upload's declared MIME type; downloads are attachments too.
         msg.add_attachment(attachment.read(), maintype='application', subtype='octet-stream',
@@ -133,7 +249,7 @@ def send(box, to, subject, body, attachment=None):
         client.starttls(context=ssl.create_default_context())
         client.ehlo()
         client.login(box.address, password)
-        refused = client.sendmail(box.address, to, raw)
+        refused = client.sendmail(box.address, list(dict.fromkeys([*to, *cc, *bcc])), raw)
     # SMTP acceptance is not proof of final delivery. Do not retry automatically.
     sent_copy = False
     try:

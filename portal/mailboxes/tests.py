@@ -15,7 +15,7 @@ from django.utils.http import urlsafe_base64_encode
 
 from . import mail
 from .forms import ComposeForm, ConnectForm
-from .models import LoginWindow, Mailbox, MailboxGrant, PendingMailbox, SendAttempt
+from .models import LoginWindow, Mailbox, MailboxGrant, PendingMailbox, PortalDraft, SendAttempt
 
 
 @contextmanager
@@ -240,7 +240,8 @@ class KappaPermissionsTests(TestCase):
         self.assertEqual(self.client.post(path, {'local_part': 'new__box'}, **self.admin_host).status_code, 200)
         self.assertEqual(create.call_count, 2)
 
-    def test_create_and_edit_user_from_single_form(self):
+    @patch('mailboxes.mail.listing', return_value=([], False))
+    def test_create_and_edit_user_from_single_form(self, listing):
         self.client.force_login(self.admin)
         path = '/people/new/'
         field = f'box_{self.box.pk}'
@@ -283,3 +284,68 @@ class KappaPermissionsTests(TestCase):
         self.user.refresh_from_db()
         self.assertTrue(self.user.check_password('abc'))
         self.assertFalse(self.user.check_password(old))
+
+    @patch('mailboxes.mail.update_message')
+    @patch('mailboxes.mail.listing', return_value=([], False))
+    def test_workspace_filters_and_forbids_message_mutation_for_read_only(self, listing, update):
+        self.grant.can_read = True
+        self.grant.save()
+        page = self.client.get(self.base+'inbox/', {'q': 'کاوش', 'filter': 'unread'}, **self.user_host)
+        self.assertContains(page, 'workspace.css')
+        listing.assert_called_once_with(self.box, 'inbox', 1, query='کاوش', filter_by='unread')
+        route = self.base+'inbox/77/update/'
+        self.assertEqual(self.client.post(route, {'version': '4', 'action': 'trash'}, **self.user_host).status_code, 404)
+        update.assert_not_called()
+        self.grant.can_send = True
+        self.grant.save()
+        self.assertEqual(self.client.get(route, **self.user_host).status_code, 405)
+        self.assertEqual(self.client.post(route, {'version': '4', 'action': 'archive'}, **self.user_host).status_code, 302)
+        update.assert_called_once_with(self.box, 'inbox', 77, '4', 'archive')
+
+    @patch('mailboxes.mail.send', return_value={'all_accepted': True, 'sent_copy': True})
+    def test_workspace_drafts_are_private_encrypted_and_retired_on_send(self, send):
+        self.grant.can_read = self.grant.can_send = True
+        self.grant.save()
+        compose = self.base+'compose/'
+        data = {'intent': 'draft', 'nonce': str(uuid.uuid4()), 'body': 'Only the author may see this'}
+        self.assertEqual(self.client.post(compose, data, **self.user_host).status_code, 302)
+        draft = PortalDraft.objects.get()
+        self.assertNotIn(data['body'], draft.encrypted_content)
+        route = compose+'?draft='+str(draft.pk)
+        self.assertContains(self.client.get(route, **self.user_host), data['body'])
+        MailboxGrant.objects.filter(user=self.other).update(can_send=True)
+        self.client.force_login(self.other)
+        self.assertEqual(self.client.get(route, **self.user_host).status_code, 404)
+        self.assertEqual(self.client.post(route, {'intent': 'discard'}, **self.user_host).status_code, 404)
+        self.client.force_login(self.user)
+        data.update(intent='send', to='first@example.com', cc='cc@example.com', bcc='private@example.com', subject='hello')
+        self.assertEqual(self.client.post(route, data, **self.user_host).status_code, 302)
+        send.assert_called_once_with(self.box, ['first@example.com'], 'hello', data['body'], None,
+                                     cc=['cc@example.com'], bcc=['private@example.com'], related=None, forward=None)
+        self.assertFalse(PortalDraft.objects.exists())
+        self.assertEqual(self.client.post(route, data, **self.user_host).status_code, 404)
+
+    @patch('mailboxes.mail.read')
+    @patch('mailboxes.mail.listing', return_value=([], False))
+    def test_workspace_reply_uses_source_and_safe_html_text(self, listing, read):
+        from email.message import EmailMessage
+        msg = EmailMessage()
+        msg['Subject'] = 'Fwd: test'
+        msg['From'] = 'author@example.com'
+        msg['Reply-To'] = 'reply@example.com'
+        msg['To'] = 'controlled@kappaut.ir, other@example.com'
+        msg['Message-ID'] = '<letter@example.com>'
+        msg.set_content('<p>متن پیام</p><script>alert(1)</script><img src="https://remote.invalid/">', subtype='html')
+        read.return_value = (msg, '42', ())
+        self.grant.can_read = self.grant.can_send = True
+        self.grant.save()
+        page = self.client.get(self.base+'inbox/7/', **self.user_host)
+        self.assertContains(page, 'متن پیام')
+        self.assertNotContains(page, 'alert(1)')
+        self.assertNotContains(page, 'remote.invalid')
+        response = self.client.get(self.base+'compose/', {'source': 'inbox/7/reply-all/42'}, **self.user_host)
+        self.assertContains(response, 'value="reply@example.com"')
+        self.assertContains(response, 'value="other@example.com"')
+        self.assertContains(response, 'Re: Fwd: test')
+        response = self.client.get(self.base+'compose/', {'source': 'inbox/7/reply-all/99'}, **self.user_host)
+        self.assertEqual(response.status_code, 302)

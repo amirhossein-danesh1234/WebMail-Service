@@ -1,0 +1,141 @@
+{% extends 'base.html' %}{% load static %}
+{% block title %}ایمیل کاپا{% endblock %}
+{% block head_extra %}<link rel="stylesheet" href="{% static 'workspace.css' %}">{% endblock %}
+{% block body_class %}mail-app{% endblock %}
+{% block footer %}{% endblock %}
+{% block content %}
+<div class="mail-workspace">
+  <aside class="mail-nav" aria-label="صندوق‌ها و پوشه‌ها">
+    <div class="mail-nav-top">
+      <div class="mail-nav-label">صندوق‌های من</div>
+      {% if active_grant.can_send %}
+      <a class="new-mail" href="{% url 'compose' box.pk %}"><span aria-hidden="true">＋</span> ایمیل جدید</a>
+      {% endif %}
+    </div>
+    <div class="account-list">
+      {% for grant in grants %}
+        {% if grant.can_read %}
+          <a class="account-link{% if grant.pk == active_grant.pk %} current{% endif %}" href="{% url 'inbox' grant.mailbox_id %}" {% if grant.pk == active_grant.pk %}aria-current="true"{% endif %}>
+        {% else %}
+          <a class="account-link{% if grant.pk == active_grant.pk %} current{% endif %}" href="{% url 'compose' grant.mailbox_id %}">
+        {% endif %}
+          <span class="account-initial" aria-hidden="true">{{ grant.mailbox.address|first|upper }}</span>
+          <bdi>{{ grant.mailbox.address }}</bdi>
+        </a>
+      {% empty %}
+        <p class="no-accounts">صندوقی به حساب شما اختصاص داده نشده است.</p>
+      {% endfor %}
+    </div>
+    {% if box %}
+      <nav class="folder-list" aria-label="پوشه‌ها">
+        {% for key, label, icon in folders %}
+          {% if key == 'drafts' or active_grant.can_read %}
+            <a {% if key == 'drafts' %}href="{% url 'drafts' box.pk %}"{% else %}href="{% url 'inbox' box.pk key %}"{% endif %}
+               class="folder-link{% if key == folder %} current{% endif %}" {% if key == folder %}aria-current="page"{% endif %}>
+              <span aria-hidden="true" class="folder-icon">{{ icon }}</span>{{ label }}
+            </a>
+          {% endif %}
+        {% endfor %}
+      </nav>
+    {% endif %}
+  </aside>
+
+  {% block workspace_main %}
+  {% if box and folder == 'drafts' %}
+    <section class="mail-list drafts-list" aria-label="پیش‌نویس‌ها">
+      <div class="list-heading"><h1>پیش‌نویس‌ها</h1><bdi>{{ box.address }}</bdi></div>
+      {% for draft, subject in draft_entries %}
+        <a class="mail-row" href="{% url 'compose' box.pk %}?draft={{ draft.pk }}">
+          <div class="mail-row-primary"><strong>{{ subject }}</strong><time>{{ draft.updated_at|date:"d M، H:i" }}</time></div>
+        </a>
+      {% empty %}
+        <div class="pane-empty"><h2>پیش‌نویسی ندارید</h2><p>متن ذخیره‌شدهٔ شما اینجا می‌آید.</p></div>
+      {% endfor %}
+      {% if draft_page.has_other_pages %}
+      <nav class="mail-pages" aria-label="صفحه‌های پیش‌نویس">
+        {% if draft_page.has_previous %}<a href="?page={{ draft_page.previous_page_number }}">قبلی</a>{% endif %}
+        {% if draft_page.has_next %}<a href="?page={{ draft_page.next_page_number }}">بعدی</a>{% endif %}
+      </nav>
+      {% endif %}
+    </section>
+    <section class="mail-reader reader-empty"><div class="pane-empty"><span class="reader-symbol" aria-hidden="true">✎</span><h2>یک پیش‌نویس را باز کنید</h2></div></section>
+  {% elif box and active_grant.can_read %}
+    <section class="mail-list{% if opened %} list-behind-reader{% endif %}" aria-label="فهرست پیام‌ها">
+      <div class="list-heading">
+        {% for key, label, icon in folders %}{% if key == folder %}<h1>{{ label }}</h1>{% endif %}{% endfor %}
+        <bdi>{{ box.address }}</bdi>
+      </div>
+      <form class="mail-search" method="get" action="{% url 'inbox' box.pk folder %}">
+        <input name="q" type="search" placeholder="جست‌وجو در این پوشه" aria-label="جست‌وجو در این پوشه" maxlength="200" value="{{ query }}">
+        {% if filter_by %}<input type="hidden" name="filter" value="{{ filter_by }}">{% endif %}
+        <button type="submit" aria-label="جست‌وجو">⌕</button>
+      </form>
+      <nav class="mail-filters" aria-label="نمایش پیام‌ها">
+        <a class="{% if not filter_by %}current{% endif %}" href="{% url 'inbox' box.pk folder %}?q={{ query|urlencode }}">همه</a>
+        <a class="{% if filter_by == 'unread' %}current{% endif %}" href="{% url 'inbox' box.pk folder %}?filter=unread&amp;q={{ query|urlencode }}">خوانده‌نشده</a>
+        <a class="{% if filter_by == 'starred' %}current{% endif %}" href="{% url 'inbox' box.pk folder %}?filter=starred&amp;q={{ query|urlencode }}">ستاره‌دار</a>
+      </nav>
+      <div class="mail-rows">
+        {% for item in items %}
+          <a class="mail-row{% if not item.seen %} unread{% endif %}{% if item.uid == selected|stringformat:'s' %} selected{% endif %}"
+             href="{% url 'message' box.pk folder item.uid %}?q={{ query|urlencode }}&amp;filter={{ filter_by }}{% if request.GET.page %}&amp;page={{ request.GET.page|urlencode }}{% endif %}">
+            <div class="mail-row-primary"><strong>{{ item.sender|default:"فرستندهٔ نامشخص" }}</strong>{% if item.received_at %}<time>{{ item.received_at|date:"d M، H:i" }}</time>{% endif %}</div>
+            <div class="mail-row-subject">{% if item.starred %}<span class="star" aria-label="ستاره‌دار">★</span>{% endif %}{{ item.subject }}</div>
+          </a>
+        {% empty %}
+          <div class="pane-empty"><h2>{% if query or filter_by %}پیامی مطابق جست‌وجو نیست{% else %}این پوشه خالی است{% endif %}</h2></div>
+        {% endfor %}
+      </div>
+      {% if previous_page or next_page %}
+      <nav class="mail-pages" aria-label="صفحه‌های پیام">
+        {% if previous_page %}<a href="{% url 'inbox' box.pk folder %}?page={{ previous_page }}&amp;q={{ query|urlencode }}&amp;filter={{ filter_by }}">قبلی</a>{% endif %}
+        {% if next_page %}<a href="{% url 'inbox' box.pk folder %}?page={{ next_page }}&amp;q={{ query|urlencode }}&amp;filter={{ filter_by }}">بعدی</a>{% endif %}
+      </nav>
+      {% endif %}
+    </section>
+    <section class="mail-reader{% if not opened %} reader-empty{% endif %}" aria-label="نمایش پیام">
+      {% if opened %}
+        <a class="mail-back" href="{% url 'inbox' box.pk folder %}?q={{ query|urlencode }}&amp;filter={{ filter_by }}">بازگشت به فهرست</a>
+        {% if active_grant.can_send %}
+        <div class="reader-toolbar">
+          {% if version %}
+          {% for label, url in reply_urls %}<a href="{{ url }}">{{ label }}</a>{% endfor %}
+          <form method="post" action="{% url 'message_update' box.pk folder opened.uid %}">
+            {% csrf_token %}<input type="hidden" name="version" value="{{ version }}">
+            {% if opened.seen %}<button name="action" value="unread">خوانده‌نشده</button>{% else %}<button name="action" value="read">خوانده شد</button>{% endif %}
+            {% if opened.starred %}<button name="action" value="unstar">برداشتن ستاره</button>{% else %}<button name="action" value="star">ستاره‌گذاری</button>{% endif %}
+            {% if folder != 'archive' %}<button name="action" value="archive">بایگانی</button>{% endif %}
+            {% if folder != 'junk' %}<button name="action" value="junk">هرزنامه</button>{% endif %}
+            {% if folder == 'archive' or folder == 'junk' or folder == 'trash' %}<button name="action" value="inbox">بازگرداندن به دریافتی</button>{% endif %}
+            {% if folder != 'trash' %}<button name="action" value="trash">انتقال به حذف‌شده</button>{% endif %}
+          </form>
+          {% endif %}
+        </div>
+        {% endif %}
+        <article class="open-message">
+          <h1>{{ opened.subject }}</h1>
+          <div class="message-meta">
+            <strong>از <bdi>{{ opened.sender_detail }}</bdi></strong>
+            {% if opened.to %}<div>به <bdi>{{ opened.to }}</bdi></div>{% endif %}
+            {% if opened.cc %}<div>رونوشت <bdi>{{ opened.cc }}</bdi></div>{% endif %}
+            <time>{% if opened.received_at %}{{ opened.received_at|date:"d M Y، H:i" }}{% else %}<bdi>{{ opened.date }}</bdi>{% endif %}</time>
+          </div>
+          {% if attachments %}<div class="attachments" aria-label="پیوست‌ها">{% for item in attachments %}
+            <a href="{% url 'attachment' box.pk folder opened.uid item.index %}"><span aria-hidden="true">↓</span> <bdi>{{ item.name }}</bdi></a>
+          {% endfor %}</div>{% endif %}
+          <pre class="body" dir="auto">{{ body }}</pre>
+        </article>
+      {% else %}
+        <div class="pane-empty"><span class="reader-symbol" aria-hidden="true">✉</span><h2>یک پیام را برای خواندن انتخاب کنید</h2></div>
+      {% endif %}
+    </section>
+  {% else %}
+    <section class="mail-reader mail-no-access">
+      <div class="pane-empty"><span class="reader-symbol" aria-hidden="true">✉</span>
+        {% if box %}<h1>ارسال از <bdi>{{ box.address }}</bdi></h1>{% else %}<h1>هنوز صندوقی ندارید</h1><p>برای دسترسی به صندوق با مدیر ایمیل کاپا تماس بگیرید.</p>{% endif %}
+      </div>
+    </section>
+  {% endif %}
+  {% endblock %}
+</div>
+{% endblock %}
