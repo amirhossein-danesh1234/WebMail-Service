@@ -67,7 +67,7 @@ def reply_fields(box, msg, mode):
                 seen.add(key)
                 result.append(address)
         return ', '.join(result)[:2000]
-    initial['to'] = addresses([msg.get('Reply-To') or msg.get('From')])
+    initial['to'] = addresses([msg.get('Reply-To') or msg.get('From')]) or addresses([msg.get('To')])
     if mode == 'reply-all':
         initial['cc'] = addresses([msg.get('To'), msg.get('Cc')])
     return initial

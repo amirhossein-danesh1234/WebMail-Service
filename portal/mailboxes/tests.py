@@ -349,3 +349,20 @@ class KappaPermissionsTests(TestCase):
         self.assertContains(response, 'Re: Fwd: test')
         response = self.client.get(self.base+'compose/', {'source': 'inbox/7/reply-all/99'}, **self.user_host)
         self.assertEqual(response.status_code, 302)
+
+    @patch('mailboxes.mail.read')
+    def test_download_forwards_original_message_as_attachment(self, read):
+        from email.message import EmailMessage
+        original = EmailMessage()
+        original['Subject'] = 'Original content'
+        original.set_content('Original body')
+        outer = EmailMessage()
+        outer.set_content('Forwarded')
+        outer.add_attachment(original, filename='original.eml')
+        read.return_value = outer
+        self.grant.can_read = True
+        self.grant.save()
+        response = self.client.get(self.base+'inbox/5/attachment/2/', **self.user_host)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('attachment; filename="original.eml"', response['Content-Disposition'])
+        self.assertIn(b'Original body', b''.join(response.streaming_content))

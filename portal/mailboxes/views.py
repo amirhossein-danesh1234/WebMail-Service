@@ -4,6 +4,8 @@ import imaplib
 import smtplib
 import uuid
 from datetime import timedelta
+from email import policy
+from email.message import Message
 from urllib.parse import urlencode
 
 from cryptography.fernet import InvalidToken
@@ -266,6 +268,10 @@ def attachment(request, box_id, folder, uid, part):
         if not piece.get_filename() and piece.get_content_disposition() != 'attachment':
             return HttpResponseNotFound()
         data = piece.get_payload(decode=True)
+        if data is None and piece.get_content_type() == 'message/rfc822':
+            nested = piece.get_content()
+            if isinstance(nested, Message):
+                data = nested.as_bytes(policy=policy.SMTP)
         if not isinstance(data, bytes):
             return HttpResponseNotFound()
         from django.http import FileResponse
