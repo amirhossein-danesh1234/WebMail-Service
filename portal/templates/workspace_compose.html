@@ -5,12 +5,23 @@
   {% if mode == 'forward' %}<p class="compose-hint">پیام اصلی همراه پیوست‌هایش به‌صورت فایل ایمیل ارسال می‌شود.</p>{% endif %}
   <form method="post" enctype="multipart/form-data" novalidate>
     {% csrf_token %}{{ form.nonce }}{{ form.non_field_errors }}
+    <p class="compose-hint">نشانی‌ها را با ویرگول، نقطه‌ویرگول یا «،» جدا کنید. BCC برای سایر گیرنده‌ها پنهان است.</p>
     <div class="compose-fields">
       {% for field in form.visible_fields %}
-      <div class="compose-field compose-{{ field.name }}">{{ field.label_tag }}{{ field }}{{ field.errors }}</div>
+      <div class="compose-field compose-{{ field.name }}">{{ field.label_tag }}{{ field }}{{ field.errors }}{% if field.help_text %}<small class="compose-hint">{{ field.help_text }}</small>{% endif %}</div>
       {% endfor %}
     </div>
-    <p class="compose-hint">پیش‌نویس متن در حساب خودتان ذخیره می‌شود. هنگام ارسال، پیوست را دوباره انتخاب کنید.</p>
+    {% if saved_files %}
+    <fieldset class="compose-saved-files">
+      <legend>پیوست‌های پیش‌نویس</legend>
+      {% for file in saved_files %}
+      <div class="compose-saved-file">
+        <bdi>{{ file.name }}</bdi>
+        <label><input type="checkbox" name="remove_attachment" value="{{ file.pk }}"{% if file.pk in removed_files %} checked{% endif %}> برداشتن پیوست</label>
+      </div>
+      {% endfor %}
+    </fieldset>
+    {% endif %}
     <div class="compose-actions">
       <button name="intent" value="send" type="submit">ارسال ایمیل</button>
       <button name="intent" value="draft" type="submit" class="quiet">ذخیرهٔ پیش‌نویس</button>

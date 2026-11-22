@@ -7,9 +7,11 @@ from cryptography.fernet import Fernet
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
+from django.db import transaction
 
 from . import mail
-from .models import MailboxGrant
+from .forms import ATTACHMENT_COUNT, ATTACHMENT_LIMIT
+from .models import DraftAttachment, MailboxGrant, PortalDraft
 
 FOLDERS = [
     ('inbox', 'دریافتی', '↓'), ('sent', 'ارسالی', '↑'), ('drafts', 'پیش‌نویس', '✎'),
@@ -44,6 +46,50 @@ def encode_draft(data, source):
 
 def decode_draft(draft):
     return json.loads(Fernet(settings.MAILBOX_KEY).decrypt(draft.encrypted_content.encode()))
+
+
+
+class DraftAttachmentsChanged(ValueError):
+    pass
+
+
+@transaction.atomic
+def save_draft(draft_id, owner, mailbox, content, uploads, removed, *, editing=False):
+    drafts = PortalDraft.objects.filter(pk=draft_id, owner=owner, mailbox=mailbox)
+    if editing:
+        draft = drafts.first()
+        if draft is None:
+            raise DraftAttachmentsChanged('Draft was removed elsewhere')
+    else:
+        draft, created = drafts.get_or_create(pk=draft_id, owner=owner, mailbox=mailbox,
+                                               defaults={'encrypted_content': content})
+        if not created:
+            return
+    kept = list(draft.attachments.defer('encrypted_data').exclude(pk__in=removed))
+    if len(kept) + len(uploads) > ATTACHMENT_COUNT or sum(
+            file.size for file in [*kept, *uploads]) > ATTACHMENT_LIMIT:
+        raise DraftAttachmentsChanged('Invalid total attachment size or count')
+    draft.encrypted_content = content
+    draft.save(update_fields=['encrypted_content', 'updated_at'])
+    draft.attachments.filter(pk__in=removed).delete()
+    if uploads:
+        cipher = Fernet(settings.MAILBOX_KEY)
+        DraftAttachment.objects.bulk_create([
+            DraftAttachment(draft=draft, name=file.name, size=file.size,
+                            encrypted_data=cipher.encrypt(file.read())) for file in uploads
+        ])
+
+
+def compose_files(draft, kept, uploads):
+    result = []
+    if draft and kept:
+        cipher = Fernet(settings.MAILBOX_KEY)
+        persisted = draft.attachments.filter(pk__in=[file.pk for file in kept]).order_by('pk')
+        for name, data in persisted.values_list('name', 'encrypted_data'):
+            result.append((name, cipher.decrypt(data)))
+        if len(result) != len(kept):
+            raise DraftAttachmentsChanged('Attachment was edited elsewhere')
+    return [*result, *((file.name, file.read()) for file in uploads)]
 
 
 def reply_fields(box, msg, mode):

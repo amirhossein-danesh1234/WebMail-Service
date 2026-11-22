@@ -4,6 +4,7 @@ import imaplib
 import re
 import smtplib
 import ssl
+from copy import deepcopy
 from contextlib import contextmanager
 from email import policy
 from email.message import EmailMessage
@@ -224,10 +225,13 @@ def text_body(msg, *, html_as_text=False):
     return '\n'.join(line.strip() for line in ''.join(parser.parts).splitlines() if line.strip())
 
 
-def send(box, to, subject, body, attachment=None, *, cc=(), bcc=(), related=None, forward=None):
+def send(box, to, subject, body, attachment=None, *, cc=(), bcc=(), related=None, forward=None, files=()):
     msg = EmailMessage()
     msg['From'] = box.address
-    msg['To'] = ', '.join(to)
+    if to:
+        msg['To'] = ', '.join(to)
+    elif not cc:
+        msg['To'] = 'undisclosed-recipients:;'
     if cc:
         msg['Cc'] = ', '.join(cc)
     msg['Subject'] = subject
@@ -237,11 +241,14 @@ def send(box, to, subject, body, attachment=None, *, cc=(), bcc=(), related=None
     msg['Message-ID'] = make_msgid(domain=box.address.rsplit('@', 1)[1])
     msg.set_content(body)
     if forward is not None:
-        msg.add_attachment(forward, filename='original.eml')
+        safe_forward = deepcopy(forward)
+        del safe_forward['Bcc']
+        del safe_forward['Resent-Bcc']
+        msg.add_attachment(safe_forward, filename='original.eml')
     if attachment:
-        # Never trust the upload's declared MIME type; downloads are attachments too.
-        msg.add_attachment(attachment.read(), maintype='application', subtype='octet-stream',
-                           filename=attachment.name)
+        files = [(attachment.name, attachment.read()), *files]
+    for name, data in files:
+        msg.add_attachment(data, maintype='application', subtype='octet-stream', filename=name)
     raw = msg.as_bytes(policy=policy.SMTP)
     password = unseal(box)
     with smtplib.SMTP(settings.MAIL_SERVER, 587, timeout=30) as client:
@@ -249,12 +256,18 @@ def send(box, to, subject, body, attachment=None, *, cc=(), bcc=(), related=None
         client.starttls(context=ssl.create_default_context())
         client.ehlo()
         client.login(box.address, password)
-        refused = client.sendmail(box.address, list(dict.fromkeys([*to, *cc, *bcc])), raw)
+        envelope = {}
+        for address in [*to, *cc, *bcc]:
+            envelope.setdefault(address.lower(), address)
+        refused = client.sendmail(box.address, list(envelope.values()), raw)
     # SMTP acceptance is not proof of final delivery. Do not retry automatically.
     sent_copy = False
     try:
         with connection(box.address, password) as client:
             target = folder_name(client, 'sent')
+            if bcc:
+                msg['Bcc'] = ', '.join(bcc)
+                raw = msg.as_bytes(policy=policy.SMTP)
             sent_copy = client.append(target, '\\Seen', None, raw)[0] == 'OK'
     except (OSError, ValueError, imaplib.IMAP4.error):
         pass

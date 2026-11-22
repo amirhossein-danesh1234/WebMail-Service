@@ -124,3 +124,7 @@
   .folder-icon { width: 14px; }
   .mail-compose .compose-fields { display: block; }
 }
+.compose-saved-files { margin: 18px 0 12px; padding: 5px 12px; border: 1px solid var(--line); border-radius: 10px; }
+.compose-saved-files legend { font-weight: 700; padding: 1px 6px; }
+.compose-saved-file { display: flex; align-items: center; justify-content: space-between; gap: 8px; overflow-wrap: anywhere; }
+.compose-saved-file label { margin: 6px 0; }

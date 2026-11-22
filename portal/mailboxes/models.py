@@ -53,3 +53,10 @@ class PortalDraft(models.Model):
     mailbox = models.ForeignKey(Mailbox, on_delete=models.CASCADE)
     encrypted_content = models.TextField(editable=False)
     updated_at = models.DateTimeField(auto_now=True)
+
+
+class DraftAttachment(models.Model):
+    draft = models.ForeignKey(PortalDraft, on_delete=models.CASCADE, related_name='attachments')
+    name = models.CharField(max_length=255)
+    size = models.PositiveIntegerField()
+    encrypted_data = models.BinaryField(editable=False)

@@ -198,7 +198,7 @@ def render_workspace(request, grant, folder, uid=None):
 
 def workspace_message(msg, uid, flags):
     data = mail.message_summary(msg, uid, flags)
-    data.update(to=str(msg.get('To', '')), cc=str(msg.get('Cc', '')))
+    data.update(to=str(msg.get('To', '')), cc=str(msg.get('Cc', '')), bcc=str(msg.get('Bcc', '')))
     return data
 
 
@@ -306,6 +306,7 @@ def compose(request, box_id):
     source, original, mode = '', None, None
     initial = {'nonce': uuid.uuid4()}
     saving_draft = False
+    saved_files, removed, keep, files = [], set(), [], []
     if grant is not None:
         draft_id = request.GET.get('draft')
         if draft_id is not None:
@@ -318,6 +319,10 @@ def compose(request, box_id):
                 draft.delete()
                 messages.success(request, 'پیش‌نویس حذف شد.')
                 return redirect('drafts', box_id=box.pk)
+            saved_files = list(draft.attachments.defer('encrypted_data').order_by('pk'))
+            requested = set(request.POST.getlist('remove_attachment'))
+            removed = {item.pk for item in saved_files if str(item.pk) in requested}
+            keep = [item for item in saved_files if item.pk not in removed]
             try:
                 initial.update(workspace.decode_draft(draft))
             except (InvalidToken, ValueError):
@@ -334,26 +339,28 @@ def compose(request, box_id):
             return redirect('drafts', box_id=box.pk) if draft else redirect('inbox', box_id=box.pk)
         saving_draft = is_post and request.POST.get('intent') == 'draft'
         form = WorkspaceComposeForm(request.POST if is_post else None, request.FILES if is_post else None,
-                                    initial=initial, saving_draft=saving_draft)
+                                    initial=initial, saving_draft=saving_draft, saved_files=keep)
     else:
         form = ComposeForm(request.POST if is_post else None, request.FILES if is_post else None, initial=initial)
 
-    if is_post and form.is_valid():
-        if saving_draft:
-            ciphertext = workspace.encode_draft(form.cleaned_data, source)
-            try:
-                if draft:
-                    updated = PortalDraft.objects.filter(pk=draft.pk, owner=request.user, mailbox=box).update(
-                        encrypted_content=ciphertext, updated_at=timezone.now())
-                    if not updated:
-                        return HttpResponseNotFound()
-                else:
-                    PortalDraft.objects.get_or_create(pk=form.cleaned_data['nonce'], owner=request.user, mailbox=box,
-                        defaults={'encrypted_content': ciphertext})
-            except IntegrityError:
-                return HttpResponseNotFound()
-            messages.success(request, 'پیش‌نویس ذخیره شد.')
+    if is_post and form.is_valid() and saving_draft:
+        content = workspace.encode_draft(form.cleaned_data, source)
+        try:
+            workspace.save_draft(draft.pk if draft else form.cleaned_data['nonce'], request.user, box,
+                                 content, form.cleaned_data['attachment'], removed, editing=draft is not None)
+        except IntegrityError:
+            return HttpResponseNotFound()
+        except workspace.DraftAttachmentsChanged:
+            form.add_error('attachment', 'پیوست‌ها تغییر کرده‌اند. صفحه را تازه کنید و دوباره امتحان کنید.')
+        else:
+            messages.success(request, 'پیش‌نویس و پیوست‌هایش ذخیره شدند.')
             return redirect('drafts', box_id=box.pk)
+    if is_post and form.is_valid() and not saving_draft and grant is not None:
+        try:
+            files = workspace.compose_files(draft, keep, form.cleaned_data['attachment'])
+        except (OSError, InvalidToken, workspace.DraftAttachmentsChanged):
+            form.add_error('attachment', 'خواندن پیوست‌ها ممکن نشد. دوباره فایل را انتخاب کنید.')
+    if is_post and form.is_valid() and not saving_draft:
         try:
             with transaction.atomic():
                 attempt = SendAttempt.objects.create(mailbox=box, nonce=draft.pk if draft else form.cleaned_data['nonce'])
@@ -362,12 +369,14 @@ def compose(request, box_id):
             return redirect('inbox', box_id=box.pk) if return_to_inbox else redirect('home')
         try:
             extra = {}
+            attachment = form.cleaned_data['attachment']
             if grant is not None:
+                attachment = None
                 extra = {'cc': form.cleaned_data['cc'], 'bcc': form.cleaned_data['bcc'],
                          'related': workspace.thread_headers(original) if mode in ('reply', 'reply-all') else None,
-                         'forward': original if mode == 'forward' else None}
+                         'forward': original if mode == 'forward' else None, 'files': files}
             result = mail.send(box, form.cleaned_data['to'], form.cleaned_data['subject'],
-                               form.cleaned_data['body'], form.cleaned_data.get('attachment'), **extra)
+                               form.cleaned_data['body'], attachment, **extra)
         except MAIL_ERRORS:
             attempt.state = 'uncertain'
             messages.error(request, 'ارسال تأیید نشد. پوشهٔ ارسالی و وضعیت دریافت را قبل از تلاش دوباره بررسی کنید.')
@@ -387,6 +396,7 @@ def compose(request, box_id):
     if grant is not None:
         return render(request, 'workspace_compose.html', {
             **workspace.context(request, grant), 'form': form, 'draft': draft, 'mode': mode,
+            'saved_files': saved_files, 'removed_files': removed,
             'title': workspace.MODES.get(mode, 'ایمیل جدید'),
         })
     return render(request, 'form.html', {'form': form, 'title': 'ارسال از ' + box.address,

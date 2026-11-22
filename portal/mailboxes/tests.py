@@ -321,7 +321,7 @@ class KappaPermissionsTests(TestCase):
         data.update(intent='send', to='first@example.com', cc='cc@example.com', bcc='private@example.com', subject='hello')
         self.assertEqual(self.client.post(route, data, **self.user_host).status_code, 302)
         send.assert_called_once_with(self.box, ['first@example.com'], 'hello', data['body'], None,
-                                     cc=['cc@example.com'], bcc=['private@example.com'], related=None, forward=None)
+                                     cc=['cc@example.com'], bcc=['private@example.com'], related=None, forward=None, files=[])
         self.assertFalse(PortalDraft.objects.exists())
         self.assertEqual(self.client.post(route, data, **self.user_host).status_code, 404)
 
@@ -366,3 +366,66 @@ class KappaPermissionsTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn('attachment; filename="original.eml"', response['Content-Disposition'])
         self.assertIn(b'Original body', b''.join(response.streaming_content))
+
+    @patch('mailboxes.mail.send', return_value={'all_accepted': True, 'sent_copy': True})
+    def test_cc_bcc_only_with_multiple_files_and_saved_draft(self, send):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        self.grant.can_read = self.grant.can_send = True
+        self.grant.save()
+        compose = self.base+'compose/'
+        page = self.client.get(compose, **self.user_host)
+        for label in ('گیرنده (To)', 'رونوشت (CC)', 'رونوشت پنهان (BCC)', 'multiple'):
+            self.assertContains(page, label)
+        data = {'intent': 'draft', 'nonce': str(uuid.uuid4()),
+                'cc': '"کاپا; دانشگاه" <cc@example.com>; cc2@example.com',
+                'bcc': 'one@example.com، two@example.com',
+                'attachment': [SimpleUploadedFile('first.txt', b'alpha'), SimpleUploadedFile('second.txt', b'beta')]}
+        self.assertEqual(self.client.post(compose, data, **self.user_host).status_code, 302)
+        draft = PortalDraft.objects.get()
+        one, two = draft.attachments.order_by('pk')
+        self.assertNotIn(b'alpha', one.encrypted_data)
+        route = compose+'?draft='+str(draft.pk)
+        self.assertContains(self.client.get(route, **self.user_host), two.name)
+        data.update(intent='send', remove_attachment=str(two.pk),
+                    attachment=[SimpleUploadedFile('last.txt', b'gamma')])
+        self.assertEqual(self.client.post(route, data, **self.user_host).status_code, 302)
+        send.assert_called_once_with(self.box, [], '', '', None, cc=['cc@example.com', 'cc2@example.com'],
+            bcc=['one@example.com', 'two@example.com'], related=None, forward=None,
+            files=[('first.txt', b'alpha'), ('last.txt', b'gamma')])
+        self.assertFalse(PortalDraft.objects.exists())
+
+    @patch('mailboxes.mail.connection')
+    @patch('mailboxes.mail.smtplib.SMTP')
+    def test_bcc_envelope_and_sent_copy_and_forward_privacy(self, smtp, imap):
+        from email import policy
+        from email.message import EmailMessage
+        from email.parser import BytesParser
+        transport = smtp.return_value.__enter__.return_value
+        transport.sendmail.return_value = {}
+        sent = imap.return_value.__enter__.return_value
+        sent.list.return_value = ('OK', [b'(\\Sent) "/" Sent'])
+        sent.append.return_value = ('OK', [b''])
+        forwarded = EmailMessage()
+        forwarded['Bcc'] = 'private-original@example.com'
+        forwarded.set_content('Old message')
+        summary = mail.send(self.box, [], '', '', bcc=['blind@example.com'],
+                            forward=forwarded, files=[('one.txt', b'abc'), ('two.txt', b'def')])
+        self.assertEqual(summary, {'all_accepted': True, 'sent_copy': True})
+        email_parser = BytesParser(policy=policy.default)
+        sender, envelope, wire = transport.sendmail.call_args.args
+        self.assertEqual(sender, self.box.address)
+        self.assertEqual(envelope, ['blind@example.com'])
+        incoming = email_parser.parsebytes(wire)
+        self.assertIsNone(incoming['Bcc'])
+        self.assertNotIn(b'private-original@example.com', wire)
+        self.assertEqual([part.get_filename() for part in incoming.iter_attachments()],
+                         ['original.eml', 'one.txt', 'two.txt'])
+        archive = email_parser.parsebytes(sent.append.call_args.args[-1])
+        self.assertEqual(archive['Bcc'], 'blind@example.com')
+        self.assertEqual(forwarded['Bcc'], 'private-original@example.com')
+
+    def test_cc_and_bcc_accept_separators_but_not_a_header_line_or_missing_recipient(self):
+        from .forms import WorkspaceComposeForm
+        for data in ({}, {'cc': 'one@example.com\r\nBcc: hidden@example.com'}):
+            form = WorkspaceComposeForm({'nonce': str(uuid.uuid4()), **data})
+            self.assertFalse(form.is_valid())

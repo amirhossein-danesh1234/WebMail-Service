@@ -117,7 +117,8 @@
           <div class="message-meta">
             <strong>از <bdi>{{ opened.sender_detail }}</bdi></strong>
             {% if opened.to %}<div>به <bdi>{{ opened.to }}</bdi></div>{% endif %}
-            {% if opened.cc %}<div>رونوشت <bdi>{{ opened.cc }}</bdi></div>{% endif %}
+            {% if opened.cc %}<div>رونوشت (CC) <bdi>{{ opened.cc }}</bdi></div>{% endif %}
+            {% if folder == 'sent' and opened.bcc %}<div>رونوشت پنهان (BCC) <bdi>{{ opened.bcc }}</bdi></div>{% endif %}
             <time>{% if opened.received_at %}{{ opened.received_at|date:"d M Y، H:i" }}{% else %}<bdi>{{ opened.date }}</bdi>{% endif %}</time>
           </div>
           {% if attachments %}<div class="attachments" aria-label="پیوست‌ها">{% for item in attachments %}

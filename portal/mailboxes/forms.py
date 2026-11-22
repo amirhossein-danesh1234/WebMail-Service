@@ -1,7 +1,9 @@
+import re
+from email.utils import getaddresses
+
 from django import forms
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from email.utils import getaddresses
 
 
 class ConnectForm(forms.Form):
@@ -49,30 +51,72 @@ class ComposeForm(forms.Form):
         if value and value.size > 10 * 1024 * 1024:
             raise ValidationError('اندازهٔ پیوست بیش از ۱۰ مگابایت است.')
         return value
-class WorkspaceComposeForm(ComposeForm):
-    cc = forms.CharField(label='رونوشت', max_length=2000, required=False)
-    bcc = forms.CharField(label='رونوشت پنهان', max_length=2000, required=False)
 
-    def __init__(self, *args, saving_draft=False, **kwargs):
+ATTACHMENT_LIMIT = 10 * 1024 * 1024
+ATTACHMENT_COUNT = 20
+ADDRESS_SEPARATORS = re.compile(r'"(?:[^"\\]|\\.)*"|[;،]')
+
+
+class AttachmentInput(forms.ClearableFileInput):
+    allow_multiple_selected = True
+
+
+class AttachmentsField(forms.FileField):
+    widget = AttachmentInput
+
+    def clean(self, data, initial=None):
+        if not data:
+            return []
+        files = data if isinstance(data, (list, tuple)) else [data]
+        clean_file = super().clean
+        return [clean_file(file, initial) for file in files]
+
+
+def workspace_recipients(value):
+    if not value:
+        return []
+    separated = ADDRESS_SEPARATORS.sub(lambda match: ',' if len(match[0]) == 1 else match[0], value)
+    return recipients(separated.rstrip(' ,'))
+
+
+class WorkspaceComposeForm(ComposeForm):
+    to = forms.CharField(label='گیرنده (To)', max_length=2000, required=False)
+    cc = forms.CharField(label='رونوشت (CC)', max_length=2000, required=False)
+    bcc = forms.CharField(label='رونوشت پنهان (BCC)', max_length=2000, required=False)
+    attachment = AttachmentsField(label='پیوست‌ها', required=False,
+                                  help_text='چند فایل را می‌توانید هم‌زمان انتخاب کنید. مجموع حجم حداکثر ۱۰ مگابایت.')
+
+    def __init__(self, *args, saving_draft=False, saved_files=(), **kwargs):
         super().__init__(*args, **kwargs)
+        self.saving_draft = saving_draft
+        self.saved_files = saved_files
         self.order_fields(['to', 'cc', 'bcc', 'subject', 'body', 'attachment', 'nonce'])
-        for name in ('to', 'subject', 'body'):
-            self.fields[name].required = not saving_draft
+        for name in ('subject', 'body'):
+            self.fields[name].required = False
 
     def clean_to(self):
-        value = self.cleaned_data['to']
-        return recipients(value) if value else []
+        return workspace_recipients(self.cleaned_data['to'])
 
     def clean_cc(self):
-        value = self.cleaned_data['cc']
-        return recipients(value) if value else []
+        return workspace_recipients(self.cleaned_data['cc'])
 
     def clean_bcc(self):
-        value = self.cleaned_data['bcc']
-        return recipients(value) if value else []
+        return workspace_recipients(self.cleaned_data['bcc'])
+
+    def clean_attachment(self):
+        uploads = self.cleaned_data['attachment']
+        if len(uploads) + len(self.saved_files) > ATTACHMENT_COUNT:
+            raise ValidationError('حداکثر ۲۰ فایل پیوست کنید.')
+        if sum(file.size for file in [*uploads, *self.saved_files]) > ATTACHMENT_LIMIT:
+            raise ValidationError('مجموع حجم پیوست‌ها باید حداکثر ۱۰ مگابایت باشد.')
+        return uploads
 
     def clean(self):
         data = super().clean()
-        if sum(len(data.get(name, [])) for name in ('to', 'cc', 'bcc')) > 20:
-            raise ValidationError('حداکثر ۲۰ گیرنده وارد کنید.')
+        if not any(self.has_error(field) for field in ('to', 'cc', 'bcc')):
+            addresses = {address.lower() for field in ('to', 'cc', 'bcc') for address in data.get(field, [])}
+            if not addresses and not self.saving_draft:
+                self.add_error('to', 'دست‌کم یک نشانی در To، CC یا BCC وارد کنید.')
+            elif len(addresses) > 20:
+                raise ValidationError('حداکثر ۲۰ گیرنده وارد کنید.')
         return data
