@@ -35,3 +35,10 @@ body { font-family: Peyda, Tahoma, sans-serif; }
 @media (max-width: 600px) {
   .person-details, .access-row { grid-template-columns: 1fr; }
 }
+
+.kappa-mark {
+  display: inline-grid; place-items: center; width: 31px; height: 31px;
+  border-radius: 8px; margin-inline-end: 7px; background: #e8ae58;
+  color: #182b3c !important; font: 700 18px Peyda, sans-serif !important;
+  letter-spacing: 0 !important; vertical-align: middle;
+}

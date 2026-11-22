@@ -1,4 +1,9 @@
-{% extends 'base.html' %}{% block title %}ورود به حساب اصلی{% endblock %}{% block content %}
+{% extends 'base.html' %}{% block title %}{% if request.kappa_portal %}Sign in · Kappa Mail{% else %}ورود به حساب اصلی{% endif %}{% endblock %}{% block content %}
+{% if request.kappa_portal %}
+<section class="auth"><h1>Sign in to Kappa Mail</h1>
+<form method="post">{% csrf_token %}{{ form.as_p }}{% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}<button>Sign in</button></form>
+</section>
+{% else %}
 <section class="auth"><div class="eyebrow">دسترسی خصوصی</div><h1>ورود به حساب اصلی</h1><p class="muted">حساب شما توسط ادمین ساخته می‌شود. پس از ورود، صندوق‌های ایمیلتان را متصل کنید.</p>
 <form method="post">{% csrf_token %}{{ form.as_p }}{% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}<button>ورود</button></form>
-<p class="muted small">حساب ندارید یا رمز را فراموش کرده‌اید؟ از ادمین لینک دعوت یا تعیین رمز بخواهید.</p><a href="/webmail/">ورود مستقیم به صندوق در وب‌میل کامل</a></section>{% endblock %}
+<p class="muted small">حساب ندارید یا رمز را فراموش کرده‌اید؟ از ادمین لینک دعوت یا تعیین رمز بخواهید.</p><a href="/webmail/">ورود مستقیم به صندوق در وب‌میل کامل</a></section>{% endif %}{% endblock %}

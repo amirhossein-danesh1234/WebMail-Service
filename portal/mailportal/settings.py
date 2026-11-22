@@ -35,7 +35,7 @@ DATA_DIR = Path(os.environ.get('PORTAL_DATA_DIR', '/var/lib/webmail-portal'))
 DATABASES = {'default': {'ENGINE': 'django.db.backends.sqlite3',
                          'NAME': DATA_DIR / 'portal.sqlite3',
                          'OPTIONS': {'timeout': 20, 'transaction_mode': 'IMMEDIATE'}}}
-LANGUAGE_CODE = 'fa'
+LANGUAGE_CODE = 'en-us' if MANAGED_KAPPA else 'fa'
 TIME_ZONE = 'Asia/Tehran'
 USE_I18N = True
 USE_TZ = True

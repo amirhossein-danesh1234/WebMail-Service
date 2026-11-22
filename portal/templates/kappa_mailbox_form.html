@@ -1,8 +1,8 @@
 {% extends 'base.html' %}
 {% block content %}
 <section class="form-panel">
-  <a href="{% url 'home' %}">بازگشت به مدیریت</a>
-  <h1>صندوق جدید</h1>
+  <a href="{% url 'home' %}">Back to admin</a>
+  <h1>New mailbox</h1>
   <form method="post">
     {% csrf_token %}
     {{ form.non_field_errors }}
@@ -11,7 +11,7 @@
       {{ form.local_part }}<span aria-hidden="true">@kappaut.ir</span>
     </div>
     {{ form.local_part.errors }}
-    <div class="form-actions"><button type="submit">ساخت صندوق</button></div>
+    <div class="form-actions"><button type="submit">Create mailbox</button></div>
   </form>
 </section>
 {% endblock %}

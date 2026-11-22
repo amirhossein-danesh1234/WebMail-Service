@@ -75,6 +75,9 @@ class SeminarCampaign(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     queued_at = models.DateTimeField(null=True)
 
+    class Meta:
+        permissions = [('send_seminar_campaign', 'Can email registered seminar attendees')]
+
 
 class SeminarRecipient(models.Model):
     campaign = models.ForeignKey(SeminarCampaign, on_delete=models.CASCADE, related_name='recipients')

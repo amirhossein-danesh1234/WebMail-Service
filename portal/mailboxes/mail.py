@@ -162,7 +162,7 @@ def message_summary(msg, uid, flags):
     sender_header = msg.get('From')
     addresses = getattr(sender_header, 'addresses', ())
     sender = addresses[0].display_name or addresses[0].addr_spec if addresses else str(sender_header or '')
-    return {'uid': uid, 'subject': str(msg.get('Subject') or '(بدون موضوع)'), 'sender': sender, 'sender_detail': str(sender_header or ''),
+    return {'uid': uid, 'subject': str(msg.get('Subject') or ('(No subject)' if settings.MANAGED_KAPPA else '(بدون موضوع)')), 'sender': sender, 'sender_detail': str(sender_header or ''),
             'date': date, 'received_at': received_at, 'seen': b'\\Seen' in flags, 'starred': b'\\Flagged' in flags}
 
 
@@ -225,7 +225,7 @@ def text_body(msg, *, html_as_text=False):
     return '\n'.join(line.strip() for line in ''.join(parser.parts).splitlines() if line.strip())
 
 
-def send(box, to, subject, body, attachment=None, *, cc=(), bcc=(), related=None, forward=None, files=()):
+def send(box, to, subject, body, attachment=None, *, cc=(), bcc=(), related=None, forward=None, files=(), html_body=''):
     msg = EmailMessage()
     msg['From'] = box.address
     if to:
@@ -240,6 +240,8 @@ def send(box, to, subject, body, attachment=None, *, cc=(), bcc=(), related=None
     msg['Date'] = formatdate(localtime=False)
     msg['Message-ID'] = make_msgid(domain=box.address.rsplit('@', 1)[1])
     msg.set_content(body)
+    if html_body:
+        msg.add_alternative(html_body, subtype='html')
     if forward is not None:
         safe_forward = deepcopy(forward)
         del safe_forward['Bcc']

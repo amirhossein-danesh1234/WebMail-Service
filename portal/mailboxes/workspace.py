@@ -9,16 +9,14 @@ from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.db import transaction
 
-from . import mail
+from . import campaigns, mail
 from .forms import ATTACHMENT_COUNT, ATTACHMENT_LIMIT
 from .models import DraftAttachment, MailboxGrant, PortalDraft
 
-FOLDERS = [
-    ('inbox', 'دریافتی', '↓'), ('sent', 'ارسالی', '↑'), ('drafts', 'پیش‌نویس', '✎'),
-    ('archive', 'بایگانی', '▤'), ('junk', 'هرزنامه', '!'), ('trash', 'حذف‌شده', '×'),
-]
-MODES = {'reply': 'پاسخ', 'reply-all': 'پاسخ به همه', 'forward': 'ارسال مجدد'}
-DRAFT_FIELDS = ('to', 'cc', 'bcc', 'subject', 'body')
+FOLDERS = [('inbox', 'Inbox'), ('sent', 'Sent'), ('junk', 'Spam'), ('drafts', 'Drafts')]
+FOLDER_NAMES = dict(FOLDERS + [('archive', 'Archive'), ('trash', 'Trash')])
+MODES = {'reply': 'Reply', 'reply-all': 'Reply all', 'forward': 'Forward'}
+DRAFT_FIELDS = ('to', 'cc', 'bcc', 'subject', 'body', 'body_html')
 MESSAGE_ID = re.compile(r'<[^\s<>]+>')
 
 
@@ -33,6 +31,7 @@ def context(request, grant=None, folder='inbox'):
     filter_by = request.GET.get('filter', '')
     return {'grants': [item for item in grants_for(request.user) if item.can_read or item.can_send],
             'active_grant': grant, 'box': grant.mailbox if grant else None, 'folder': folder,
+            'folder_title': FOLDER_NAMES.get(folder, 'Inbox'), 'seminar_access': campaigns.can_use_campaigns(request.user),
             'folders': [entry for entry in FOLDERS if entry[0] != 'drafts' or (grant and grant.can_send)],
             'query': search, 'filter_by': filter_by if filter_by in mail.SEARCH_FLAGS else ''}
 

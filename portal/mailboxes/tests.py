@@ -213,7 +213,7 @@ class KappaPermissionsTests(TestCase):
         self.assertEqual(self.client.get('/', **self.admin_host).status_code, 404)
         self.assertEqual(self.client.get('/manage/', **self.admin_host).status_code, 302)
         self.client.force_login(self.admin)
-        self.assertContains(self.client.get('/', **self.admin_host), 'مدیریت ایمیل کاپا')
+        self.assertContains(self.client.get('/', **self.admin_host), 'Kappa Mail Admin')
         self.assertEqual(self.client.get(f'/people/{self.user.pk}/', **self.admin_host).status_code, 200)
         self.assertEqual(self.client.get('/manage/', **self.admin_host).url, '/')
         self.assertEqual(self.client.get(self.base, **self.admin_host).status_code, 404)
@@ -249,7 +249,7 @@ class KappaPermissionsTests(TestCase):
                   'password': '1234', field: 'read'}
         page = self.client.get(path, **self.admin_host)
         self.assertContains(page, 'kappa.css')
-        self.assertContains(page, 'خواندن صندوق و ارسال')
+        self.assertContains(page, 'Read and send')
         self.assertNotContains(page, 'فقط ارسال')
         response = self.client.post(path, {**values, 'password': ''}, **self.admin_host)
         self.assertEqual(response.status_code, 200)
@@ -374,7 +374,7 @@ class KappaPermissionsTests(TestCase):
         self.grant.save()
         compose = self.base+'compose/'
         page = self.client.get(compose, **self.user_host)
-        for label in ('گیرنده (To)', 'رونوشت (CC)', 'رونوشت پنهان (BCC)', 'multiple'):
+        for label in ('To', 'CC', 'BCC', 'multiple'):
             self.assertContains(page, label)
         data = {'intent': 'draft', 'nonce': str(uuid.uuid4()),
                 'cc': '"کاپا; دانشگاه" <cc@example.com>; cc2@example.com',
@@ -449,7 +449,7 @@ class KappaPermissionsTests(TestCase):
         self.assertEqual((campaign.total_rows, campaign.invalid_rows, campaign.duplicate_rows), (5, 2, 1))
         self.assertEqual(campaign.recipients.count(), 2)
         self.assertNotIn(b'first@example.com', bytes(campaign.recipients.first().encrypted_address))
-        self.assertContains(self.client.get(response.url, **self.admin_host), 'تأیید ارسال به 2 نفر')
+        self.assertContains(self.client.get(response.url, **self.admin_host), 'Send to 2 recipients')
         run_batch(delay=0)
         send.assert_not_called()
         self.assertEqual(self.client.post(path, data, **self.admin_host).url, response.url)
@@ -482,3 +482,52 @@ class KappaPermissionsTests(TestCase):
             self.client.post(url+'update/', {'action':'resume'}, **self.admin_host)
             run_batch(delay=0)
             send.assert_called_once_with(self.box, ['two@example.com'], 'Test', 'Test')
+
+    def test_recipient_fields_accept_spaces_without_comma(self):
+        from .forms import WorkspaceComposeForm
+        form = WorkspaceComposeForm({'nonce': uuid.uuid4(), 'to': 'one@example.com two@example.com',
+                                     'cc': 'cc@example.com next@example.com', 'bcc': 'b@example.com a@example.com'})
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.cleaned_data['to'], ['one@example.com', 'two@example.com'])
+        self.assertEqual(form.cleaned_data['cc'], ['cc@example.com', 'next@example.com'])
+        self.assertEqual(form.cleaned_data['bcc'], ['b@example.com', 'a@example.com'])
+
+    @patch('mailboxes.mail.listing', return_value=([], False))
+    @patch('mailboxes.seminar_source.read_emails', return_value=['attendee@example.com'])
+    def test_granted_seminar_access_in_mail_limits_sender_and_worker(self, rows, listing):
+        from django.contrib.auth.models import Permission
+        from .campaigns import claim_recipient
+        from .models import SeminarCampaign
+        path = '/seminar-mail/'
+        self.grant.can_read = self.grant.can_send = True
+        self.grant.save()
+        self.assertNotContains(self.client.get('/', **self.user_host), 'Seminar mail')
+        self.assertEqual(self.client.get(path, **self.user_host).status_code, 404)
+        self.user.user_permissions.add(Permission.objects.get(codename='send_seminar_campaign'))
+        self.assertContains(self.client.get('/', **self.user_host), 'Seminar mail')
+        self.assertContains(self.client.get(path, **self.user_host), self.box.address)
+        self.assertEqual(self.client.get(path, **self.admin_host).status_code, 404)
+        other = Mailbox.objects.create(address='other-sender@kappaut.ir', encrypted_credential='test')
+        data = {'source': 'nobel', 'mailbox': other.pk, 'subject': 'Update',
+                'body': 'Registration notice', 'nonce': str(uuid.uuid4())}
+        self.assertEqual(self.client.post(path, data, **self.user_host).status_code, 200)
+        self.assertFalse(SeminarCampaign.objects.exists())
+        data['mailbox'] = self.box.pk
+        detail = self.client.post(path, data, **self.user_host).url
+        self.client.post(detail+'update/', {'action': 'queue'}, **self.user_host)
+        self.grant.can_send = False
+        self.grant.save()
+        self.assertIsNone(claim_recipient())
+        self.assertEqual(SeminarCampaign.objects.get().state, 'paused')
+
+    @patch('mailboxes.mail.listing', return_value=([], False))
+    @patch('mailboxes.mail.send', return_value={'all_accepted': True, 'sent_copy': True})
+    def test_rich_message_payload_retains_formatting_but_strips_active_markup(self, send, listing):
+        self.grant.can_read = self.grant.can_send = True
+        self.grant.save()
+        editor = self.client.get(self.base+'compose/', **self.user_host)
+        self.assertContains(editor, 'aria-label="Message formatting"')
+        form = {'nonce': str(uuid.uuid4()), 'to': 'one@example.com', 'body': 'Word',
+                'body_html': '<p onclick="evil()"><b>Word</b><script>evil()</script><img src="https://track.invalid"><a href="javascript:evil()">Text</a></p>'}
+        self.assertEqual(self.client.post(self.base+'compose/', form, **self.user_host).status_code, 302)
+        self.assertEqual(send.call_args.kwargs['html_body'], '<p><b>Word</b>Text</p>')

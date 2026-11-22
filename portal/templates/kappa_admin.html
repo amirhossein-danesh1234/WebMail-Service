@@ -1,30 +1,30 @@
 {% extends 'base.html' %}
 {% block content %}
-<div class="heading"><h1>مدیریت ایمیل کاپا</h1><a class="button" href="{% url 'kappa_seminar_mail' %}">ایمیل به ثبت‌نام‌کنندگان سمینار</a></div>
+<div class="heading"><h1>Kappa Mail Admin</h1><a class="button" href="{% url 'kappa_seminar_mail' %}">Seminar mail</a></div>
 <div class="grid">
   <section class="card">
     <div class="section-heading">
-      <h2>کاربران</h2>
-      <a class="button" href="{% url 'kappa_person_create' %}">کاربر جدید</a>
+      <h2>Users</h2>
+      <a class="button" href="{% url 'kappa_person_create' %}">New user</a>
     </div>
     <ul class="admin-list">
       {% for person in people %}
       <li>
         <div><strong>{{ person.get_full_name|default:person.username }}</strong><div class="muted"><bdi>{{ person.username }}</bdi></div></div>
-        <a href="{% url 'kappa_person_edit' person.pk %}" aria-label="ویرایش {{ person.username }}">ویرایش</a>
+        <a href="{% url 'kappa_person_edit' person.pk %}" aria-label="Edit {{ person.username }}">Edit</a>
       </li>
-      {% empty %}<li class="muted">هنوز کاربری تعریف نشده است.</li>{% endfor %}
+      {% empty %}<li class="muted">No users yet.</li>{% endfor %}
     </ul>
   </section>
   <section class="card">
     <div class="section-heading">
-      <h2>صندوق‌ها</h2>
-      <a class="button" href="{% url 'kappa_mailbox_create' %}">صندوق جدید</a>
+      <h2>Mailboxes</h2>
+      <a class="button" href="{% url 'kappa_mailbox_create' %}">New mailbox</a>
     </div>
     <ul class="admin-list">
       {% for box in mailboxes %}
       <li><bdi>{{ box.address }}</bdi></li>
-      {% empty %}<li class="muted">هنوز صندوقی ساخته نشده است.</li>{% endfor %}
+      {% empty %}<li class="muted">No mailboxes yet.</li>{% endfor %}
     </ul>
   </section>
 </div>

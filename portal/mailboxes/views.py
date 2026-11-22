@@ -28,6 +28,7 @@ from django.views.decorators.debug import sensitive_post_parameters
 from . import mail, workspace
 from .forms import ComposeForm, ConnectForm, WorkspaceComposeForm
 from .models import LoginWindow, Mailbox, MailboxGrant, PortalDraft, SendAttempt
+from .rich import safe_mail_markup
 
 MAIL_ERRORS = (OSError, ValueError, LookupError, imaplib.IMAP4.error, smtplib.SMTPException, InvalidToken)
 
@@ -55,7 +56,7 @@ class PortalLoginView(LoginView):
 
     def post(self, request, *args, **kwargs):
         if limited(request, 'login'):
-            return HttpResponse('تلاش‌های ورود زیاد است؛ ده دقیقه بعد دوباره تلاش کنید.', status=429)
+            return HttpResponse('Too many sign-in attempts. Try again in ten minutes.' if settings.MANAGED_KAPPA else 'تلاش‌های ورود زیاد است؛ ده دقیقه بعد دوباره تلاش کنید.', status=429)
         return super().post(request, *args, **kwargs)
 
 
@@ -168,6 +169,10 @@ def inbox(request, box_id, folder='inbox'):
 def render_workspace(request, grant, folder, uid=None):
     if folder not in mail.FOLDERS:
         return HttpResponseNotFound()
+    return render(request, 'workspace.html', workspace_data(request, grant, folder, uid))
+
+
+def workspace_data(request, grant, folder, uid=None):
     data = workspace.context(request, grant, folder)
     box = grant.mailbox
     try:
@@ -177,7 +182,7 @@ def render_workspace(request, grant, folder, uid=None):
     try:
         items, more = mail.listing(box, folder, page, query=data['query'], filter_by=data['filter_by'])
     except MAIL_ERRORS:
-        messages.error(request, 'باز کردن پوشه یا جست‌وجو انجام نشد.')
+        messages.error(request, 'Could not open or search this folder.')
         items, more = [], False
     data.update(items=items, selected=uid, next_page=page + 1 if more else None,
                 previous_page=page - 1 if page > 1 else None)
@@ -186,14 +191,15 @@ def render_workspace(request, grant, folder, uid=None):
             msg, version, flags = mail.read(box, folder, uid, with_flags=True)
             data.update(
                 opened=workspace_message(msg, uid, flags), body=mail.text_body(msg, html_as_text=True), version=version,
-                attachments=[{'index': i, 'name': p.get_filename() or 'پیوست'}
+                attachments=[{'index': i, 'name': p.get_filename() or 'Attachment'}
                              for i, p in enumerate(msg.walk()) if p.get_content_disposition() == 'attachment' or p.get_filename()],
                 reply_urls=[(label, reverse('compose', args=[box.pk]) + '?' + urlencode({
-                    'source': f'{folder}/{uid}/{mode}/{version}'})) for mode, label in workspace.MODES.items()],
+                    'source': f'{folder}/{uid}/{mode}/{version}', 'folder': folder, 'message': uid
+                })) for mode, label in workspace.MODES.items()],
             )
         except MAIL_ERRORS:
-            messages.error(request, 'پیام در دسترس نیست یا بیش از ۲۰ مگابایت است.')
-    return render(request, 'workspace.html', data)
+            messages.error(request, 'This message is unavailable or larger than 20 MB.')
+    return data
 
 
 def workspace_message(msg, uid, flags):
@@ -214,7 +220,7 @@ def message_update(request, box_id, folder, uid):
     try:
         mail.update_message(box, folder, uid, request.POST.get('version'), action)
     except MAIL_ERRORS:
-        messages.error(request, 'تغییر ذخیره نشد. صفحه را تازه کنید و دوباره امتحان کنید.')
+        messages.error(request, 'Could not update the message. Refresh and try again.')
     if action in mail.MESSAGE_FLAGS:
         return redirect('message', box_id=box_id, folder=folder, uid=uid)
     return redirect('inbox', box_id=box_id, folder=folder)
@@ -233,7 +239,7 @@ def drafts(request, box_id):
             subject = workspace.decode_draft(draft).get('subject')
         except (ValueError, InvalidToken):
             subject = ''
-        entries.append((draft, subject or '(بدون موضوع)'))
+        entries.append((draft, subject or '(No subject)'))
     data = workspace.context(request, grant, 'drafts')
     return render(request, 'workspace.html', {**data, 'draft_entries': entries, 'draft_page': page})
 
@@ -317,7 +323,7 @@ def compose(request, box_id):
             draft = get_object_or_404(PortalDraft, pk=draft_key, mailbox=box, owner=request.user)
             if is_post and request.POST.get('intent') == 'discard':
                 draft.delete()
-                messages.success(request, 'پیش‌نویس حذف شد.')
+                messages.success(request, 'Draft discarded.')
                 return redirect('drafts', box_id=box.pk)
             saved_files = list(draft.attachments.defer('encrypted_data').order_by('pk'))
             requested = set(request.POST.getlist('remove_attachment'))
@@ -335,7 +341,7 @@ def compose(request, box_id):
             if original is not None and not draft:
                 initial.update(workspace.reply_fields(box, original, mode))
         except MAIL_ERRORS:
-            messages.error(request, 'پیام اصلی جابه‌جا شده یا در دسترس نیست.')
+            messages.error(request, 'The original message is no longer available.')
             return redirect('drafts', box_id=box.pk) if draft else redirect('inbox', box_id=box.pk)
         saving_draft = is_post and request.POST.get('intent') == 'draft'
         form = WorkspaceComposeForm(request.POST if is_post else None, request.FILES if is_post else None,
@@ -351,21 +357,21 @@ def compose(request, box_id):
         except IntegrityError:
             return HttpResponseNotFound()
         except workspace.DraftAttachmentsChanged:
-            form.add_error('attachment', 'پیوست‌ها تغییر کرده‌اند. صفحه را تازه کنید و دوباره امتحان کنید.')
+            form.add_error('attachment', 'Attachments changed. Reload the draft and try again.')
         else:
-            messages.success(request, 'پیش‌نویس و پیوست‌هایش ذخیره شدند.')
+            messages.success(request, 'Draft saved.')
             return redirect('drafts', box_id=box.pk)
     if is_post and form.is_valid() and not saving_draft and grant is not None:
         try:
             files = workspace.compose_files(draft, keep, form.cleaned_data['attachment'])
         except (OSError, InvalidToken, workspace.DraftAttachmentsChanged):
-            form.add_error('attachment', 'خواندن پیوست‌ها ممکن نشد. دوباره فایل را انتخاب کنید.')
+            form.add_error('attachment', 'Could not read the attachments. Select the files again.')
     if is_post and form.is_valid() and not saving_draft:
         try:
             with transaction.atomic():
                 attempt = SendAttempt.objects.create(mailbox=box, nonce=draft.pk if draft else form.cleaned_data['nonce'])
         except IntegrityError:
-            messages.error(request, 'این فرم قبلاً ثبت شده است؛ ارسال تکرار نشد.')
+            messages.error(request, 'This message was already submitted.' if settings.MANAGED_KAPPA else 'این فرم قبلاً ثبت شده است؛ ارسال تکرار نشد.')
             return redirect('inbox', box_id=box.pk) if return_to_inbox else redirect('home')
         try:
             extra = {}
@@ -375,29 +381,42 @@ def compose(request, box_id):
                 extra = {'cc': form.cleaned_data['cc'], 'bcc': form.cleaned_data['bcc'],
                          'related': workspace.thread_headers(original) if mode in ('reply', 'reply-all') else None,
                          'forward': original if mode == 'forward' else None, 'files': files}
+                if form.cleaned_data['body_html']:
+                    extra['html_body'] = form.cleaned_data['body_html']
             result = mail.send(box, form.cleaned_data['to'], form.cleaned_data['subject'],
                                form.cleaned_data['body'], attachment, **extra)
         except MAIL_ERRORS:
             attempt.state = 'uncertain'
-            messages.error(request, 'ارسال تأیید نشد. پوشهٔ ارسالی و وضعیت دریافت را قبل از تلاش دوباره بررسی کنید.')
+            messages.error(request, 'Sending could not be confirmed. Check Sent before trying again.' if settings.MANAGED_KAPPA else 'ارسال تأیید نشد. پوشهٔ ارسالی و وضعیت دریافت را قبل از تلاش دوباره بررسی کنید.')
         else:
             attempt.state = 'accepted' if result['all_accepted'] else 'partial'
             if result['all_accepted']:
-                messages.success(request, 'سرور پیام را برای ارسال پذیرفت.')
+                messages.success(request, 'Message accepted by the mail server.' if settings.MANAGED_KAPPA else 'سرور پیام را برای ارسال پذیرفت.')
             else:
-                messages.warning(request, 'سرور بعضی گیرنده‌ها را نپذیرفت؛ پیام را برای همه دوباره ارسال نکنید.')
+                messages.warning(request, 'The mail server rejected some recipients.' if settings.MANAGED_KAPPA else 'سرور بعضی گیرنده‌ها را نپذیرفت؛ پیام را برای همه دوباره ارسال نکنید.')
             if not result['sent_copy']:
-                messages.warning(request, 'نسخهٔ پیام در پوشهٔ ارسالی ذخیره نشد.')
+                messages.warning(request, 'Could not save a copy in Sent.' if settings.MANAGED_KAPPA else 'نسخهٔ پیام در پوشهٔ ارسالی ذخیره نشد.')
         with transaction.atomic():
             attempt.save(update_fields=['state'])
             if draft and attempt.state == 'accepted':
                 draft.delete()
         return redirect('inbox', box_id=box.pk, folder='sent') if return_to_inbox else redirect('home')
     if grant is not None:
+        folder = request.GET.get('folder', 'inbox')
+        if folder not in mail.FOLDERS:
+            folder = 'inbox'
+        message_id = request.GET.get('message', '')
+        uid = int(message_id) if message_id.isascii() and message_id.isdigit() and len(message_id) <= 10 else None
+        data = workspace_data(request, grant, folder, uid) if grant.can_read else workspace.context(request, grant)
+        if grant.can_read:
+            close_url = reverse('message', args=[box.pk, folder, uid]) if uid else reverse('inbox', args=[box.pk, folder])
+        else:
+            close_url = reverse('home')
         return render(request, 'workspace_compose.html', {
-            **workspace.context(request, grant), 'form': form, 'draft': draft, 'mode': mode,
+            **data, 'form': form, 'draft': draft, 'mode': mode, 'close_url': close_url,
             'saved_files': saved_files, 'removed_files': removed,
-            'title': workspace.MODES.get(mode, 'ایمیل جدید'),
+            'restored_markup': safe_mail_markup((form['body_html'].value() or '')[:400000]),
+            'title': workspace.MODES.get(mode, 'New message'),
         })
     return render(request, 'form.html', {'form': form, 'title': 'ارسال از ' + box.address,
                                          'hint': 'فرستنده فقط همین صندوق احراز هویت‌شده است.'})

@@ -1,8 +1,8 @@
 {% extends 'base.html' %}
 {% block content %}
 <section class="form-panel">
-  <a href="{% url 'home' %}">بازگشت به مدیریت</a>
-  <h1>{% if person %}ویرایش کاربر{% else %}کاربر جدید{% endif %}</h1>
+  <a href="{% url 'home' %}">Back to admin</a>
+  <h1>{% if person %}Edit user{% else %}New user{% endif %}</h1>
   <form method="post">
     {% csrf_token %}
     {{ form.non_field_errors }}
@@ -13,18 +13,19 @@
         {% endif %}
       {% endfor %}
     </div>
+    {{ form.campaign_access.as_field_group }}
     <fieldset class="mail-access">
-      <legend>دسترسی به صندوق‌ها</legend>
+      <legend>Mailbox access</legend>
       {% for field in access_fields %}
         <div class="access-row">
           <label for="{{ field.id_for_label }}"><bdi>{{ field.label }}</bdi></label>
           {{ field }}{{ field.errors }}
         </div>
       {% empty %}
-        <p class="muted">هنوز صندوقی برای تخصیص وجود ندارد.</p>
+        <p class="muted">No mailboxes available.</p>
       {% endfor %}
     </fieldset>
-    <div class="form-actions"><button type="submit">ذخیرهٔ کاربر</button></div>
+    <div class="form-actions"><button type="submit">Save user</button></div>
   </form>
 </section>
 {% endblock %}

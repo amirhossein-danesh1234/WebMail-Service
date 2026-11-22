@@ -11,7 +11,23 @@ from django.db import transaction
 from django.utils import timezone
 
 from . import mail
-from .models import SeminarCampaign, SeminarRecipient
+from .models import Mailbox, SeminarCampaign, SeminarRecipient
+
+
+SEMINAR_PERMISSION = 'mailboxes.send_seminar_campaign'
+
+
+def can_use_campaigns(user):
+    return user.is_authenticated and user.is_active and user.has_perm(SEMINAR_PERMISSION)
+
+
+def sender_mailboxes(user):
+    boxes = Mailbox.objects.filter(address__iendswith='@kappaut.ir').order_by('address')
+    if user.is_superuser and user.is_active:
+        return boxes
+    if can_use_campaigns(user):
+        return boxes.filter(grants__user=user, grants__can_send=True)
+    return boxes.none()
 
 
 def cipher():
@@ -73,7 +89,7 @@ def claim_recipient():
     campaign = queued.first()
     if not campaign:
         return None
-    if not campaign.owner.is_active or not campaign.owner.is_superuser:
+    if not sender_mailboxes(campaign.owner).filter(pk=campaign.mailbox_id).exists():
         SeminarCampaign.objects.filter(pk=campaign.pk, state='queued').update(state='paused')
         return None
     recipient = campaign.recipients.filter(state='pending').order_by('pk').first()
