@@ -1,0 +1,16 @@
+{% extends 'base.html' %}
+{% block content %}
+<h1>مدیریت ایمیل کاپا</h1>
+<div class="grid">
+  <article class="card">
+    <h2>کاربران و دسترسی‌ها</h2>
+    <p>نام و رمز ورود هر کاربر را تعیین کنید. سپس در صفحهٔ همان کاربر، دسترسی خواندن و ارسال را برای هر صندوق مشخص کنید.</p>
+    <a class="button" href="/manage/auth/user/">مدیریت کاربران</a>
+  </article>
+  <article class="card">
+    <h2>صندوق‌های ایمیل</h2>
+    <p>صندوق‌های موجود کاپا را با آدرس و رمز صندوق اضافه کنید. کاربران با رمز حساب خود وارد پنل می‌شوند.</p>
+    <a class="button" href="/manage/mailboxes/mailbox/">مدیریت صندوق‌ها</a>
+  </article>
+</div>
+{% endblock %}

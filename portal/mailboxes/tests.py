@@ -1,9 +1,11 @@
 import uuid
 from contextlib import contextmanager
 from datetime import timedelta
+from unittest import skipIf, skipUnless
 from unittest.mock import patch
 
 from cryptography.fernet import Fernet
+from django.conf import settings
 from django.contrib.auth.models import User
 from django.contrib.auth.tokens import default_token_generator
 from django.test import Client, TestCase, override_settings
@@ -13,7 +15,7 @@ from django.utils.http import urlsafe_base64_encode
 
 from . import mail
 from .forms import ComposeForm, ConnectForm
-from .models import LoginWindow, Mailbox, SendAttempt
+from .models import LoginWindow, Mailbox, MailboxGrant, SendAttempt
 
 
 @contextmanager
@@ -22,6 +24,7 @@ def authenticated_mailbox(*args):
 
 
 @override_settings(PASSWORD_HASHERS=['django.contrib.auth.hashers.MD5PasswordHasher'])
+@skipIf(settings.MANAGED_KAPPA, "Legacy portal mode")
 class PortalSecurityTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user('invited-user', password='test-only-password-493!')
@@ -157,3 +160,75 @@ class PortalSecurityTests(TestCase):
             self.client.post('/login/', {'username': 'none', 'password': 'invalid'}, secure=True)
         self.assertEqual(self.client.post('/login/', {'username': 'none', 'password': 'invalid'}, secure=True).status_code, 429)
         self.assertNotIn('127.0.0.1', LoginWindow.objects.get().key)
+
+
+@skipUnless(settings.MANAGED_KAPPA, 'Managed Kappa mode')
+@override_settings(PASSWORD_HASHERS=['django.contrib.auth.hashers.MD5PasswordHasher'])
+class KappaPermissionsTests(TestCase):
+    user_host = {'secure': True, 'HTTP_HOST': 'mail.kappaut.ir'}
+    admin_host = {'secure': True, 'HTTP_HOST': 'mail-admin.kappaut.ir'}
+
+    def setUp(self):
+        self.admin = User.objects.create_superuser('tenant-admin', password='admin-only-test-password')
+        self.user = User.objects.create_user('regular-user', password='user-only-test-password')
+        self.other = User.objects.create_user('another-user')
+        self.box = Mailbox.objects.create(address='controlled@kappaut.ir',
+            encrypted_credential=mail.seal('controlled@kappaut.ir', 'test-only-mail-password'))
+        self.grant = MailboxGrant.objects.create(user=self.user, mailbox=self.box)
+        MailboxGrant.objects.create(user=self.other, mailbox=self.box, can_read=True)
+        self.client.force_login(self.user)
+        self.base = f'/boxes/{self.box.pk}/'
+
+    @patch('mailboxes.mail.listing', return_value=([], False))
+    @patch('mailboxes.mail.send', return_value={'all_accepted': True, 'sent_copy': True})
+    def test_permissions_are_independent_and_revocation_takes_effect(self, send, listing):
+        paths = ('', 'sent/', 'inbox/1/', 'inbox/1/attachment/1/', 'compose/')
+        for path in paths:
+            self.assertEqual(self.client.get(self.base + path, **self.user_host).status_code, 404)
+        self.grant.can_read = True
+        self.grant.save()
+        page = self.client.get(self.base, **self.user_host)
+        self.assertEqual(page.status_code, 200)
+        self.assertNotContains(page, 'compose/')
+        form = {'to': 'test@example.com', 'subject': 'Notice', 'body': 'Text', 'nonce': str(uuid.uuid4())}
+        self.assertEqual(self.client.post(self.base + 'compose/', form, **self.user_host).status_code, 404)
+        send.assert_not_called()
+        self.grant.can_read = False
+        self.grant.can_send = True
+        self.grant.save()
+        self.assertContains(self.client.get('/', **self.user_host), 'compose/')
+        response = self.client.post(self.base + 'compose/', form, **self.user_host)
+        self.assertEqual(response.url, '/')
+        send.assert_called_once()
+        self.assertEqual(self.client.get(self.base + 'sent/', **self.user_host).status_code, 404)
+        listing.assert_called_once()
+        self.grant.delete()
+        self.assertEqual(self.client.get(self.base + 'compose/', **self.user_host).status_code, 404)
+        self.assertTrue(MailboxGrant.objects.filter(user=self.other, mailbox=self.box).exists())
+
+    def test_user_cannot_self_connect_disconnect_or_use_admin(self):
+        for path in ('/connect/', '/manage/', '/webmail/', '/admin/'):
+            self.assertEqual(self.client.get(path, **self.user_host).status_code, 404)
+        self.assertEqual(self.client.post(self.base + 'disconnect/', **self.user_host).status_code, 404)
+        self.assertEqual(self.client.get('/', **self.admin_host).status_code, 404)
+        self.assertEqual(self.client.get('/manage/', **self.admin_host).status_code, 302)
+        self.client.force_login(self.admin)
+        self.assertContains(self.client.get('/', **self.admin_host), 'مدیریت ایمیل کاپا')
+        self.assertEqual(self.client.get(f'/manage/auth/user/{self.user.pk}/change/', **self.admin_host).status_code, 200)
+        self.assertEqual(self.client.get(self.base, **self.admin_host).status_code, 404)
+
+    @patch('mailboxes.mail.connection', authenticated_mailbox)
+    def test_admin_registers_kappa_mailbox_and_controls_access_in_user_form(self):
+        self.client.force_login(self.admin)
+        path = '/manage/mailboxes/mailbox/add/'
+        fields = {'address': 'new@unilrn.ir', 'password': 'test-only-mail-password'}
+        self.assertEqual(self.client.post(path, fields, **self.admin_host).status_code, 200)
+        self.assertFalse(Mailbox.objects.filter(address=fields['address']).exists())
+        fields['address'] = 'New@kappaut.ir'
+        self.assertEqual(self.client.post(path, fields, **self.admin_host).status_code, 302)
+        box = Mailbox.objects.get(address='new@kappaut.ir')
+        self.assertIsNone(box.owner)
+        self.assertEqual(mail.unseal(box), fields['password'])
+        page = self.client.get(f'/manage/auth/user/{self.user.pk}/change/', **self.admin_host)
+        self.assertContains(page, 'mailboxgrant_set-0-can_read')
+        self.assertContains(page, 'mailboxgrant_set-0-can_send')

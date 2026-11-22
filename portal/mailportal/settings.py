@@ -6,8 +6,10 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = os.environ['PORTAL_SECRET_KEY']
 MAILBOX_KEY = os.environ['PORTAL_MAILBOX_KEY']
 DEBUG = False
-ADMIN_HOST = 'mail-admin.amirhossein-danesh.ir'
-MAIL_HOSTS = ['mail.amirhossein-danesh.ir', 'mail.kappaut.ir', 'mail.unilrn.ir']
+MANAGED_KAPPA = os.environ.get('PORTAL_TENANT') == 'kappa'
+ADMIN_HOST = 'mail-admin.kappaut.ir' if MANAGED_KAPPA else 'mail-admin.amirhossein-danesh.ir'
+MAIL_HOSTS = ['mail.kappaut.ir'] if MANAGED_KAPPA else [
+    'mail.amirhossein-danesh.ir', 'mail.kappaut.ir', 'mail.unilrn.ir']
 ALLOWED_HOSTS = MAIL_HOSTS + [ADMIN_HOST, 'localhost', 'testserver']
 CSRF_TRUSTED_ORIGINS = ['https://' + h for h in MAIL_HOSTS + [ADMIN_HOST]]
 INSTALLED_APPS = ['django.contrib.admin', 'django.contrib.auth',
@@ -67,4 +69,4 @@ X_FRAME_OPTIONS = 'DENY'
 DATA_UPLOAD_MAX_MEMORY_SIZE = 22 * 1024 * 1024
 FILE_UPLOAD_MAX_MEMORY_SIZE = 1024 * 1024
 MAIL_SERVER = 'mx.amirhossein-danesh.ir'
-MAIL_DOMAINS = ('amirhossein-danesh.ir', 'kappaut.ir', 'unilrn.ir')
+MAIL_DOMAINS = ('kappaut.ir',) if MANAGED_KAPPA else ('amirhossein-danesh.ir', 'kappaut.ir', 'unilrn.ir')

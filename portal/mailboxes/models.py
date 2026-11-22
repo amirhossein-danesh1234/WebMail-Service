@@ -3,13 +3,27 @@ from django.db import models
 
 
 class Mailbox(models.Model):
-    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True)
     address = models.EmailField(unique=True)
     encrypted_credential = models.TextField(editable=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return self.address
+
+
+class MailboxGrant(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    mailbox = models.ForeignKey(Mailbox, on_delete=models.CASCADE, related_name='grants', verbose_name='صندوق')
+    can_read = models.BooleanField('خواندن پیام‌ها', default=False)
+    can_send = models.BooleanField('ارسال از این آدرس', default=False)
+
+    class Meta:
+        verbose_name = 'دسترسی صندوق'
+        verbose_name_plural = 'دسترسی صندوق‌ها'
+        constraints = [
+            models.UniqueConstraint(fields=['user', 'mailbox'], name='unique_mailbox_grant'),
+        ]
 
 
 class SendAttempt(models.Model):

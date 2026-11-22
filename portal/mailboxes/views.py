@@ -10,7 +10,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.views import LoginView
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, models, transaction
 from django.db.models import F
 from django.http import HttpResponse, HttpResponseNotFound
 from django.shortcuts import get_object_or_404, redirect, render
@@ -21,7 +21,7 @@ from django.views.decorators.debug import sensitive_post_parameters
 
 from . import mail
 from .forms import ComposeForm, ConnectForm
-from .models import LoginWindow, Mailbox, SendAttempt
+from .models import LoginWindow, Mailbox, MailboxGrant, SendAttempt
 
 MAIL_ERRORS = (OSError, ValueError, LookupError, imaplib.IMAP4.error, smtplib.SMTPException, InvalidToken)
 
@@ -68,7 +68,13 @@ def home(request):
     if request.get_host().split(':')[0] == settings.ADMIN_HOST:
         if not request.user.is_staff:
             return HttpResponseNotFound()
-        return render(request, 'admin_home.html')
+        template = 'kappa_admin.html' if settings.MANAGED_KAPPA else 'admin_home.html'
+        return render(request, template)
+    if settings.MANAGED_KAPPA:
+        grants = MailboxGrant.objects.filter(user=request.user).filter(
+            models.Q(can_read=True) | models.Q(can_send=True)
+        ).select_related('mailbox').order_by('mailbox__address')
+        return render(request, 'kappa_home.html', {'grants': grants})
     return render(request, 'home.html', {'boxes': Mailbox.objects.filter(owner=request.user)})
 
 
@@ -104,21 +110,29 @@ def connect(request):
         'hint': 'ساخت آدرس جدید فقط توسط ادمین انجام می‌شود. رمز اتصال به‌صورت رمزنگاری‌شده روی سرور نگهداری می‌شود.'})
 
 
-def owned(request, box_id):
-    return get_object_or_404(Mailbox, pk=box_id, owner=request.user)
+def authorized_box(request, box_id, permission):
+    if settings.MANAGED_KAPPA:
+        grant = get_object_or_404(
+            MailboxGrant.objects.select_related('mailbox'), mailbox_id=box_id,
+            user=request.user, **{permission: True}
+        )
+        return grant.mailbox, grant
+    return get_object_or_404(Mailbox, pk=box_id, owner=request.user), None
 
 
 @login_required
 @require_POST
 def disconnect(request, box_id):
-    owned(request, box_id).delete()
+    if settings.MANAGED_KAPPA:
+        return HttpResponseNotFound()
+    get_object_or_404(Mailbox, pk=box_id, owner=request.user).delete()
     messages.success(request, 'اتصال حذف شد؛ صندوق و ایمیل‌های Stalwart حذف نشده‌اند.')
     return redirect('home')
 
 
 @login_required
 def inbox(request, box_id, folder='inbox'):
-    box = owned(request, box_id)
+    box, grant = authorized_box(request, box_id, 'can_read')
     if folder not in ('inbox', 'sent', 'junk', 'trash'):
         return HttpResponseNotFound()
     try:
@@ -131,20 +145,21 @@ def inbox(request, box_id, folder='inbox'):
         messages.error(request, 'خواندن صندوق ممکن نشد؛ اتصال یا رمز صندوق را بررسی کنید.')
         items, more = [], False
     return render(request, 'inbox.html', {'box': box, 'items': items, 'folder': folder,
-        'page': page, 'next_page': page + 1 if more else None,
+        'page': page, 'can_send': grant is None or grant.can_send,
+        'legacy_webmail': grant is None, 'next_page': page + 1 if more else None,
         'previous_page': page - 1 if page > 1 else None})
 
 
 @login_required
 def message(request, box_id, folder, uid):
-    box = owned(request, box_id)
+    box, _ = authorized_box(request, box_id, 'can_read')
     try:
         msg = mail.read(box, folder, uid)
         attachments = [{'index': i, 'name': p.get_filename() or 'attachment'}
                        for i, p in enumerate(msg.walk()) if p.get_content_disposition() == 'attachment' or p.get_filename()]
         body = mail.text_body(msg)
     except MAIL_ERRORS:
-        messages.error(request, 'پیام در دسترس نیست یا بیش از ۲۰ مگابایت است؛ از وب‌میل کامل استفاده کنید.')
+        messages.error(request, 'پیام در دسترس نیست یا بیش از ۲۰ مگابایت است.')
         return redirect('inbox', box_id=box.pk)
     return render(request, 'message.html', {'box': box, 'folder': folder, 'uid': uid,
         'subject': str(msg.get('Subject', '')), 'sender': str(msg.get('From', '')),
@@ -153,7 +168,7 @@ def message(request, box_id, folder, uid):
 
 @login_required
 def attachment(request, box_id, folder, uid, part):
-    box = owned(request, box_id)
+    box, _ = authorized_box(request, box_id, 'can_read')
     try:
         msg = mail.read(box, folder, uid)
         pieces = list(msg.walk())
@@ -176,7 +191,8 @@ def attachment(request, box_id, folder, uid, part):
 
 @login_required
 def compose(request, box_id):
-    box = owned(request, box_id)
+    box, grant = authorized_box(request, box_id, 'can_send')
+    return_to_inbox = grant is None or grant.can_read
     form = ComposeForm(request.POST or None, request.FILES or None,
                        initial={'nonce': uuid.uuid4()})
     if request.method == 'POST' and form.is_valid():
@@ -185,7 +201,7 @@ def compose(request, box_id):
                 attempt = SendAttempt.objects.create(mailbox=box, nonce=form.cleaned_data['nonce'])
         except IntegrityError:
             messages.error(request, 'این فرم قبلاً ثبت شده است؛ برای جلوگیری از ارسال تکراری دوباره ارسال نشد.')
-            return redirect('inbox', box_id=box.pk)
+            return redirect('inbox', box_id=box.pk) if return_to_inbox else redirect('home')
         try:
             result = mail.send(box, form.cleaned_data['to'], form.cleaned_data['subject'],
                                form.cleaned_data['body'], form.cleaned_data.get('attachment'))
@@ -201,6 +217,6 @@ def compose(request, box_id):
             if not result['sent_copy']:
                 messages.warning(request, 'نسخهٔ پیام در پوشهٔ ارسالی ذخیره نشد؛ پیام را دوباره ارسال نکنید.')
         attempt.save(update_fields=['state'])
-        return redirect('inbox', box_id=box.pk, folder='sent')
+        return redirect('inbox', box_id=box.pk, folder='sent') if return_to_inbox else redirect('home')
     return render(request, 'form.html', {'form': form, 'title': 'ارسال از ' + box.address,
                                          'hint': 'فرستنده فقط همین صندوق احراز هویت‌شده است.'})

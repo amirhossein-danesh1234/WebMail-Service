@@ -10,6 +10,11 @@ class BoundariesMiddleware:
         host = request.get_host().split(':')[0]
         if request.path.startswith(('/manage/', '/staff-gate/')) and host != settings.ADMIN_HOST:
             return HttpResponseNotFound()
+        if settings.MANAGED_KAPPA:
+            if request.path == '/connect/' or request.path.startswith(('/admin/', '/webmail/')):
+                return HttpResponseNotFound()
+            if host == settings.ADMIN_HOST and request.path.startswith(('/boxes/', '/invite/')):
+                return HttpResponseNotFound()
         response = self.get_response(request)
         response['Cache-Control'] = 'private, no-store'
         response['Content-Security-Policy'] = (

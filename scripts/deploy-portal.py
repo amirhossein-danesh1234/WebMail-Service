@@ -141,11 +141,16 @@ def main():
                 if updated.count('    location / {\n') != 1:
                     raise RuntimeError('Unexpected Stalwart fallback location; no proxy activation')
                 updated = updated.replace('    location / {\n', '    location / {\n        ' + cors_include + '\n')
+            kappa_active = Path('/etc/nginx/sites-enabled/kappa-webmail-portal').exists()
+            if kappa_active:
+                updated = ''.join(line.replace(' mail.kappaut.ir', '')
+                                  if line.lstrip().startswith('server_name ') else line
+                                  for line in updated.splitlines(keepends=True))
             webmail.write_text(updated)
             if not had_link:
                 link.symlink_to(admin)
             if args.enable_tls:
-                hosts = [h for h in ('mail.amirhossein-danesh.ir', 'mail.kappaut.ir', 'mail.unilrn.ir') if h in covered]
+                hosts = [h for h in ('mail.amirhossein-danesh.ir', 'mail.kappaut.ir', 'mail.unilrn.ir') if h in covered and (not kappa_active or h != 'mail.kappaut.ir')]
                 if not hosts:
                     raise RuntimeError('No user hostname is covered by certificate')
                 tls.write_text((ROOT / 'deploy/nginx-portal-tls.conf').read_text().replace('@MAIL_HOSTS@', ' '.join(hosts)))
