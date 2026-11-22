@@ -42,3 +42,12 @@ body { font-family: Peyda, Tahoma, sans-serif; }
   color: #182b3c !important; font: 700 18px Peyda, sans-serif !important;
   letter-spacing: 0 !important; vertical-align: middle;
 }
+.campaign-recipient-list {
+  max-height: 16rem;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding-inline: 10px;
+}
+.campaign-recipient-list ol { margin-block: 8px; padding-inline-start: 24px; }
+.campaign-recipient-list li { overflow-wrap: anywhere; padding: 3px 0; }

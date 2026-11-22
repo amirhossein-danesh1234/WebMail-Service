@@ -96,16 +96,20 @@ def seminar_mail(request):
 def campaign_detail(request, campaign_id):
     campaign = get_object_or_404(SeminarCampaign.objects.select_related('mailbox'), pk=campaign_id, owner=request.user)
     counts = {row['state']: row['count'] for row in campaign.recipients.values('state').annotate(count=Count('pk'))}
+    recipient_addresses = []
     try:
         payload = campaigns.contents(campaign)
+        if campaign.state == 'prepared':
+            recipient_addresses = [campaigns.address_of(item) for item in campaign.recipients.order_by('pk')]
         exceptions = [(campaigns.address_of(item), item.state)
                       for item in campaign.recipients.filter(state__in=('rejected', 'uncertain')).order_by('pk')[:30]]
     except (ValueError, InvalidToken):
         messages.error(request, 'Unable to load this campaign.')
-        payload, exceptions = {}, []
+        payload, exceptions, recipient_addresses = {}, [], []
     return render(request, 'kappa_seminar_detail.html', {
         **campaign_layout(request), **summary(campaign), 'payload': payload, 'counts': counts,
-        'recipient_count': sum(counts.values()), 'exceptions': exceptions,
+        'recipient_count': sum(counts.values()), 'recipient_addresses': recipient_addresses,
+        'exceptions': exceptions,
     })
 
 

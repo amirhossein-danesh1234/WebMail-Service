@@ -14,10 +14,15 @@
     <p><strong>{{ recipient_count }}</strong> unique valid addresses from {{ campaign.total_rows }} registrations</p>
     <p class="muted">{{ campaign.invalid_rows }} invalid or blank · {{ campaign.duplicate_rows }} duplicate</p>
     {% if campaign.state == 'prepared' %}
-      <p>Each recipient gets a separate message.</p>
-      <form method="post" action="{% url 'kappa_seminar_update' campaign.pk %}">
-        {% csrf_token %}<button name="action" value="queue">Send to {{ recipient_count }} recipients</button>
-      </form>
+      {% if recipient_addresses %}
+        <div class="campaign-recipient-list" tabindex="0" role="region" aria-label="Recipient email addresses">
+          <ol>{% for address in recipient_addresses %}<li><bdi>{{ address }}</bdi></li>{% endfor %}</ol>
+        </div>
+        <p>Each recipient gets a separate message.</p>
+        <form method="post" action="{% url 'kappa_seminar_update' campaign.pk %}">
+          {% csrf_token %}<button name="action" value="queue">Send to {{ recipient_count }} recipients</button>
+        </form>
+      {% endif %}
     {% else %}
       <dl>
         <dt>Pending</dt><dd>{{ counts.pending|default:0 }}</dd>
