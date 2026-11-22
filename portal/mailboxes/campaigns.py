@@ -127,7 +127,7 @@ def deliver_one(campaign, recipient):
         record_delivery(campaign, recipient, 'pending', pause=True)
         return
     try:
-        result = mail.send(campaign.mailbox, [address], payload['subject'], payload['body'])
+        result = mail.send(campaign.mailbox, [], payload['subject'], payload['body'], bcc=[address])
     except smtplib.SMTPRecipientsRefused as error:
         if any(400 <= code < 500 for code, _ in error.recipients.values()):
             record_delivery(campaign, recipient, 'pending', pause=True)

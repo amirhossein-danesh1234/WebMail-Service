@@ -18,7 +18,7 @@
         <div class="campaign-recipient-list" tabindex="0" role="region" aria-label="Recipient email addresses">
           <ol>{% for address in recipient_addresses %}<li><bdi>{{ address }}</bdi></li>{% endfor %}</ol>
         </div>
-        <p>Each recipient gets a separate message.</p>
+        <p>Each recipient gets a separate message via BCC. Recipient addresses are hidden.</p>
         <form method="post" action="{% url 'kappa_seminar_update' campaign.pk %}">
           {% csrf_token %}<button name="action" value="queue">Send to {{ recipient_count }} recipients</button>
         </form>

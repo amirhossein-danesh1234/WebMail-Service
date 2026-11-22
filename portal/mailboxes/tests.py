@@ -462,7 +462,9 @@ class KappaPermissionsTests(TestCase):
             self.assertEqual(self.client.post(response.url+'update/', {'action':'queue'}, **self.admin_host).status_code, 302)
         run_batch(delay=0)
         run_batch(delay=0)
-        self.assertEqual([call.args[1] for call in send.call_args_list], [['first@example.com'], ['second@example.com']])
+        self.assertEqual([call.args[1] for call in send.call_args_list], [[], []])
+        self.assertEqual([call.kwargs['bcc'] for call in send.call_args_list],
+                         [['first@example.com'], ['second@example.com']])
         campaign.refresh_from_db()
         self.assertEqual(campaign.state, 'finished')
         self.assertEqual(campaign.recipients.filter(state='accepted').count(), 2)
@@ -486,7 +488,7 @@ class KappaPermissionsTests(TestCase):
             self.assertEqual(interrupted.state, 'uncertain')
             self.client.post(url+'update/', {'action':'resume'}, **self.admin_host)
             run_batch(delay=0)
-            send.assert_called_once_with(self.box, ['two@example.com'], 'Test', 'Test')
+            send.assert_called_once_with(self.box, [], 'Test', 'Test', bcc=['two@example.com'])
 
     def test_recipient_fields_accept_spaces_without_comma(self):
         from .forms import WorkspaceComposeForm
