@@ -9,7 +9,7 @@ class BoundariesMiddleware:
 
     def __call__(self, request):
         host = request.get_host().split(':')[0]
-        if request.path.startswith(('/manage/', '/staff-gate/', '/mailboxes/', '/people/')) and host != settings.ADMIN_HOST:
+        if request.path.startswith(('/manage/', '/staff-gate/', '/mailboxes/', '/people/', '/seminar-mail/')) and host != settings.ADMIN_HOST:
             return HttpResponseNotFound()
         if settings.MANAGED_KAPPA:
             request.kappa_portal = True

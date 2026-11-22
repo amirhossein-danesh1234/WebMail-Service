@@ -1,10 +1,13 @@
 from django.contrib import admin
 from django.contrib.auth import views as auth
 from django.urls import path
-from mailboxes import managed, views
+from mailboxes import campaign_views, managed, views
 
 urlpatterns = [
     path('healthz', views.health),
+    path('seminar-mail/', campaign_views.seminar_mail, name='kappa_seminar_mail'),
+    path('seminar-mail/<uuid:campaign_id>/', campaign_views.campaign_detail, name='kappa_seminar_detail'),
+    path('seminar-mail/<uuid:campaign_id>/update/', campaign_views.campaign_update, name='kappa_seminar_update'),
     path('mailboxes/new/', managed.mailbox_create, name='kappa_mailbox_create'),
     path('people/new/', managed.person_edit, name='kappa_person_create'),
     path('people/<int:user_id>/', managed.person_edit, name='kappa_person_edit'),

@@ -429,3 +429,56 @@ class KappaPermissionsTests(TestCase):
         for data in ({}, {'cc': 'one@example.com\r\nBcc: hidden@example.com'}):
             form = WorkspaceComposeForm({'nonce': str(uuid.uuid4()), **data})
             self.assertFalse(form.is_valid())
+
+    @patch('mailboxes.campaigns.mail.send', return_value={'all_accepted': True, 'sent_copy': True})
+    @patch('mailboxes.seminar_source.read_emails', return_value=[
+        'first@example.com', ' FIRST@example.com ', '', 'not-an-email', 'second@example.com'])
+    def test_seminar_snapshot_requires_confirmation_and_sends_each_address_once(self, source, send):
+        from .campaigns import run_batch
+        from .models import SeminarCampaign
+        path = '/seminar-mail/'
+        data = {'source':'nobel', 'mailbox':self.box.pk, 'subject':'Seminar news',
+                'body':'Registration notice', 'nonce':str(uuid.uuid4())}
+        self.assertEqual(self.client.get(path, **self.user_host).status_code, 404)
+        self.assertEqual(self.client.post(path, data, **self.admin_host).status_code, 404)
+        self.client.force_login(self.admin)
+        response = self.client.post(path, data, **self.admin_host)
+        self.assertEqual(response.status_code, 302)
+        campaign = SeminarCampaign.objects.get()
+        self.assertEqual(campaign.state, 'prepared')
+        self.assertEqual((campaign.total_rows, campaign.invalid_rows, campaign.duplicate_rows), (5, 2, 1))
+        self.assertEqual(campaign.recipients.count(), 2)
+        self.assertNotIn(b'first@example.com', bytes(campaign.recipients.first().encrypted_address))
+        self.assertContains(self.client.get(response.url, **self.admin_host), 'تأیید ارسال به 2 نفر')
+        run_batch(delay=0)
+        send.assert_not_called()
+        self.assertEqual(self.client.post(path, data, **self.admin_host).url, response.url)
+        for _ in range(2):
+            self.assertEqual(self.client.post(response.url+'update/', {'action':'queue'}, **self.admin_host).status_code, 302)
+        run_batch(delay=0)
+        run_batch(delay=0)
+        self.assertEqual([call.args[1] for call in send.call_args_list], [['first@example.com'], ['second@example.com']])
+        campaign.refresh_from_db()
+        self.assertEqual(campaign.state, 'finished')
+        self.assertEqual(campaign.recipients.filter(state='accepted').count(), 2)
+        source.assert_called_with('nobel')
+
+    @patch('mailboxes.seminar_source.read_emails', return_value=['one@example.com', 'two@example.com'])
+    def test_seminar_does_not_repeat_uncertain_submission(self, source):
+        from .campaigns import claim_recipient, run_batch
+        from .models import SeminarCampaign
+        self.client.force_login(self.admin)
+        url = self.client.post('/seminar-mail/', {
+            'source':'nobel', 'mailbox':self.box.pk, 'subject':'Test', 'body':'Test', 'nonce':str(uuid.uuid4()),
+        }, **self.admin_host).url
+        self.client.post(url+'update/', {'action':'queue'}, **self.admin_host)
+        _, interrupted = claim_recipient()
+        with patch('mailboxes.campaigns.mail.send', return_value={'all_accepted': True}) as send:
+            run_batch(delay=0)
+            send.assert_not_called()
+            self.assertEqual(SeminarCampaign.objects.get().state, 'paused')
+            interrupted.refresh_from_db()
+            self.assertEqual(interrupted.state, 'uncertain')
+            self.client.post(url+'update/', {'action':'resume'}, **self.admin_host)
+            run_batch(delay=0)
+            send.assert_called_once_with(self.box, ['two@example.com'], 'Test', 'Test')

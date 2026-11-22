@@ -60,3 +60,27 @@ class DraftAttachment(models.Model):
     name = models.CharField(max_length=255)
     size = models.PositiveIntegerField()
     encrypted_data = models.BinaryField(editable=False)
+
+
+class SeminarCampaign(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    mailbox = models.ForeignKey(Mailbox, on_delete=models.PROTECT)
+    source = models.CharField(max_length=12)
+    encrypted_message = models.BinaryField(editable=False)
+    total_rows = models.PositiveIntegerField()
+    invalid_rows = models.PositiveIntegerField(default=0)
+    duplicate_rows = models.PositiveIntegerField(default=0)
+    state = models.CharField(max_length=12, default='prepared', db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    queued_at = models.DateTimeField(null=True)
+
+
+class SeminarRecipient(models.Model):
+    campaign = models.ForeignKey(SeminarCampaign, on_delete=models.CASCADE, related_name='recipients')
+    encrypted_address = models.BinaryField(editable=False)
+    state = models.CharField(max_length=12, default='pending')
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [models.Index(fields=['campaign', 'state'])]

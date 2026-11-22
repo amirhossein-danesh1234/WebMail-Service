@@ -1,0 +1,19 @@
+[Unit]
+Description=Read email addresses from a Kappa seminar
+
+[Service]
+Type=simple
+User=kappaut
+ExecStart=/usr/bin/python3 -I -B /opt/webmail-service/portal/mailboxes/seminar_source.py
+StandardInput=socket
+StandardOutput=socket
+StandardError=journal
+RuntimeMaxSec=10
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+RestrictAddressFamilies=AF_UNIX
+IPAddressDeny=any
+InaccessiblePaths=-/opt/kappaut -/var/lib/kappaut/core.sqlite -/var/lib/kappaut/core.sqlite-wal -/var/lib/kappaut/core.sqlite-shm -/var/lib/kappaut/admin-sessions.sqlite -/var/lib/kappaut/admin-sessions.sqlite-wal -/var/lib/kappaut/admin-sessions.sqlite-shm
+CapabilityBoundingSet=

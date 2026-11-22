@@ -101,12 +101,15 @@ def portal(backup, admin):
     unit = unit.replace('User=webmail-portal', 'User=' + SERVICE).replace('Group=webmail-portal', 'Group=' + SERVICE)
     unit = unit.replace('127.0.0.1:8091', '127.0.0.1:8092')
     (Path('/etc/systemd/system') / (SERVICE + '.service')).write_text(unit)
-    for filename in ('kappa-mailbox-create.socket', 'kappa-mailbox-create@.service'):
+    for filename in ('kappa-mailbox-create.socket', 'kappa-mailbox-create@.service',
+                     'kappa-seminar-recipients.socket', 'kappa-seminar-recipients@.service',
+                     'kappa-seminar-mail.service', 'kappa-seminar-mail.timer'):
         target = Path('/etc/systemd/system') / filename
         shutil.copyfile(DEPLOY / filename, target)
         os.chmod(target, 0o644)
     run('systemctl', 'daemon-reload')
-    run('systemctl', 'enable', '--now', 'kappa-mailbox-create.socket')
+    run('systemctl', 'enable', '--now', 'kappa-mailbox-create.socket',
+        'kappa-seminar-recipients.socket', 'kappa-seminar-mail.timer')
     run('systemctl', 'enable', SERVICE)
     run('systemctl', 'restart', SERVICE)
 

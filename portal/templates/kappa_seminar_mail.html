@@ -1,0 +1,26 @@
+{% extends 'base.html' %}
+{% block title %}ایمیل ثبت‌نام‌کنندگان کاپا{% endblock %}
+{% block content %}
+<div class="heading">
+  <div><a href="{% url 'home' %}">بازگشت به مدیریت</a><h1>ایمیل به ثبت‌نام‌کنندگان</h1></div>
+</div>
+<div class="grid">
+  <section class="card">
+    <h2>ارسال جدید</h2>
+    <form method="post">
+      {% csrf_token %}{{ form.nonce }}{{ form.non_field_errors }}{{ form.nonce.errors }}
+      {% for field in form.visible_fields %}<div>{{ field.as_field_group }}</div>{% endfor %}
+      <div class="form-actions"><button type="submit">بررسی گیرنده‌ها و پیش‌نمایش</button></div>
+    </form>
+  </section>
+  <section class="card">
+    <h2>ارسال‌های اخیر</h2>
+    <ul class="admin-list">
+      {% for item in recent %}
+        <li><div><strong>{{ item.source_label }}</strong><div class="muted">{{ item.state_label }} · {{ item.campaign.created_at|date:"j F Y، H:i" }}</div></div>
+        <a href="{% url 'kappa_seminar_detail' item.campaign.pk %}">مشاهده</a></li>
+      {% empty %}<li class="muted">ارسالی ثبت نشده است.</li>{% endfor %}
+    </ul>
+  </section>
+</div>
+{% endblock %}

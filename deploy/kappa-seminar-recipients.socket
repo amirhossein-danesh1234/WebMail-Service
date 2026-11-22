@@ -1,0 +1,13 @@
+[Unit]
+Description=Read-only Kappa seminar recipient socket
+
+[Socket]
+ListenStream=/run/kappa-seminar-recipients.sock
+SocketUser=kappa-webmail-portal
+SocketMode=0600
+Accept=yes
+MaxConnections=4
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target

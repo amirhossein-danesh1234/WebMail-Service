@@ -1,0 +1,48 @@
+{% extends 'base.html' %}
+{% block title %}پیش‌نمایش و وضعیت ایمیل سمینار{% endblock %}
+{% block content %}
+<div class="heading"><div><a href="{% url 'kappa_seminar_mail' %}">ارسال‌های سمینار</a><h1>{{ source_label }}</h1></div><div class="badge">{{ state_label }}</div></div>
+<div class="grid">
+  <section class="card">
+    <h2>پیام</h2>
+    <div>فرستنده <bdi>{{ campaign.mailbox.address }}</bdi></div>
+    <h3>{{ payload.subject }}</h3>
+    <pre class="body" dir="auto">{{ payload.body }}</pre>
+  </section>
+  <section class="card">
+    <h2>گیرنده‌ها</h2>
+    <p><strong>{{ recipient_count }}</strong> نشانی معتبر و یکتا از {{ campaign.total_rows }} ثبت‌نام</p>
+    <p class="muted">{{ campaign.invalid_rows }} بدون ایمیل معتبر · {{ campaign.duplicate_rows }} تکراری</p>
+    {% if campaign.state == 'prepared' %}
+      <p>هر نفر یک ایمیل جداگانه می‌گیرد و نشانی دیگران را نمی‌بیند.</p>
+      <form method="post" action="{% url 'kappa_seminar_update' campaign.pk %}">
+        {% csrf_token %}<button name="action" value="queue">تأیید ارسال به {{ recipient_count }} نفر</button>
+      </form>
+    {% else %}
+      <dl>
+        <dt>در انتظار ارسال</dt><dd>{{ counts.pending|default:0 }}</dd>
+        <dt>در حال ارسال</dt><dd>{{ counts.sending|default:0 }}</dd>
+        <dt>پذیرفته‌شده توسط SMTP</dt><dd>{{ counts.accepted|default:0 }}</dd>
+        <dt>ردشده</dt><dd>{{ counts.rejected|default:0 }}</dd>
+        <dt>نتیجه نامشخص</dt><dd>{{ counts.uncertain|default:0 }}</dd>
+      </dl>
+      {% if campaign.state == 'queued' or campaign.state == 'paused' %}
+        <form method="post" action="{% url 'kappa_seminar_update' campaign.pk %}">
+          {% csrf_token %}
+          {% if campaign.state == 'queued' %}<button name="action" value="pause">توقف پیام‌های در صف</button>
+          {% else %}<button name="action" value="resume">ادامهٔ ارسال‌های در انتظار</button>{% endif %}
+          <a href="{% url 'kappa_seminar_detail' campaign.pk %}">تازه‌کردن وضعیت</a>
+        </form>
+      {% endif %}
+    {% endif %}
+  </section>
+</div>
+{% if exceptions %}
+<section class="card">
+  <h2>نشانی‌های ردشده یا نامشخص</h2>
+  <ul class="admin-list">{% for address, state in exceptions %}
+    <li><bdi>{{ address }}</bdi><span>{% if state == 'rejected' %}ردشده{% else %}نامشخص{% endif %}</span></li>
+  {% endfor %}</ul>
+</section>
+{% endif %}
+{% endblock %}
