@@ -228,16 +228,16 @@ class KappaPermissionsTests(TestCase):
         self.client.force_login(self.admin)
         self.assertEqual(self.client.post(path, {'local_part': 'new@unilrn.ir'}, **self.admin_host).status_code, 200)
         create.assert_not_called()
-        self.assertEqual(self.client.post(path, {'local_part': 'New.Box'}, **self.admin_host).status_code, 200)
-        self.assertFalse(Mailbox.objects.filter(address='new.box@kappaut.ir').exists())
-        pending = PendingMailbox.objects.get(address='new.box@kappaut.ir')
-        self.assertEqual(self.client.post(path, {'local_part': 'New.Box'}, **self.admin_host).status_code, 302)
+        self.assertEqual(self.client.post(path, {'local_part': 'New__Box@KAPPAUT.IR'}, **self.admin_host).status_code, 200)
+        self.assertFalse(Mailbox.objects.filter(address='new__box@kappaut.ir').exists())
+        pending = PendingMailbox.objects.get(address='new__box@kappaut.ir')
+        self.assertEqual(self.client.post(path, {'local_part': 'new__box'}, **self.admin_host).status_code, 302)
         box = Mailbox.objects.get(address=pending.address)
         self.assertEqual(box.encrypted_credential, pending.encrypted_credential)
         self.assertFalse(PendingMailbox.objects.filter(pk=pending.pk).exists())
         self.assertEqual(create.call_args_list[0], create.call_args_list[1])
-        self.assertEqual(create.call_args.args[0], 'new.box')
-        self.assertEqual(self.client.post(path, {'local_part': 'new.box'}, **self.admin_host).status_code, 200)
+        self.assertEqual(create.call_args.args[0], 'new__box')
+        self.assertEqual(self.client.post(path, {'local_part': 'new__box'}, **self.admin_host).status_code, 200)
         self.assertEqual(create.call_count, 2)
 
     def test_create_and_edit_user_from_single_form(self):
@@ -245,11 +245,14 @@ class KappaPermissionsTests(TestCase):
         path = '/people/new/'
         field = f'box_{self.box.pk}'
         values = {'full_name': 'امیرحسین دانش', 'username': 'simple-user',
-                  'password': 'test-only-password-923!', field: 'read'}
+                  'password': '1234', field: 'read'}
         page = self.client.get(path, **self.admin_host)
         self.assertContains(page, 'kappa.css')
         self.assertContains(page, 'خواندن صندوق و ارسال')
         self.assertNotContains(page, 'فقط ارسال')
+        response = self.client.post(path, {**values, 'password': ''}, **self.admin_host)
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(User.objects.filter(username=values['username']).exists())
         self.assertEqual(self.client.post(path, values, **self.admin_host).status_code, 302)
         person = User.objects.get(username=values['username'])
         self.assertEqual(person.get_full_name(), values['full_name'])
@@ -269,3 +272,14 @@ class KappaPermissionsTests(TestCase):
         values[field] = ''
         self.assertEqual(self.client.post(path, values, **self.admin_host).status_code, 302)
         self.assertFalse(MailboxGrant.objects.filter(pk=grant.pk).exists())
+
+    def test_kappa_user_can_change_password_to_short_letters_only(self):
+        path = '/password/'
+        old = 'user-only-test-password'
+        self.client.force_login(self.user)
+        response = self.client.post(path, {'old_password': old,
+            'new_password1': 'abc', 'new_password2': 'abc'}, **self.user_host)
+        self.assertEqual(response.status_code, 302)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password('abc'))
+        self.assertFalse(self.user.check_password(old))

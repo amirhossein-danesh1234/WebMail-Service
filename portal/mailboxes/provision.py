@@ -10,7 +10,7 @@ import urllib.request
 
 DOMAIN = 'kappaut.ir'
 SOCKET_PATH = '/run/kappa-mailbox-create.sock'
-LOCAL_PART = re.compile(r'[a-z0-9]+(?:[._-][a-z0-9]+)*', re.ASCII)
+LOCAL_PART = re.compile(r'[a-z0-9_-]+(?:\.[a-z0-9_-]+)*', re.ASCII)
 MAX_REQUEST = 512
 
 

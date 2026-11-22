@@ -6,7 +6,6 @@ from functools import wraps
 from cryptography.fernet import InvalidToken
 from django import forms
 from django.contrib import messages
-from django.contrib.auth import password_validation
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import UsernameField
 from django.contrib.auth.models import User
@@ -37,14 +36,14 @@ def kappa_admin(view):
 
 class MailboxForm(forms.Form):
     local_part = forms.CharField(
-        label='نام صندوق', max_length=64,
+        label='نام صندوق', max_length=64 + len('@' + provision.DOMAIN),
         widget=forms.TextInput(attrs={'placeholder': 'info', 'autocomplete': 'off', 'dir': 'ltr'}),
     )
 
     def clean_local_part(self):
-        name = self.cleaned_data['local_part'].lower()
+        name = self.cleaned_data['local_part'].lower().removesuffix('@' + provision.DOMAIN)
         if not provision.valid_local_part(name):
-            raise forms.ValidationError('فقط حروف انگلیسی، عدد و جداکنندهٔ نقطه، خط تیره یا زیرخط وارد کنید.')
+            raise forms.ValidationError('نام صندوق یا نشانی معتبر با دامنهٔ کاپا را وارد کنید.')
         return name
 
 
@@ -59,8 +58,8 @@ class PersonForm(forms.Form):
         super().__init__(*args, **kwargs)
         self.person = person
         self.fields['password'].required = person is None
-        self.fields['password'].help_text = (
-            'حداقل ۱۲ نویسه' if person is None else 'برای حفظ رمز فعلی، این فیلد را خالی بگذارید.')
+        if person is not None:
+            self.fields['password'].help_text = 'برای حفظ رمز فعلی، این فیلد را خالی بگذارید.'
         grants = {}
         if person is not None:
             self.initial.update(full_name=person.get_full_name(), username=person.username)
@@ -79,16 +78,6 @@ class PersonForm(forms.Form):
         if User.objects.filter(username__iexact=username).exclude(pk=self.person.pk if self.person else None).exists():
             raise forms.ValidationError('این نام کاربری قبلاً استفاده شده است.')
         return username
-
-    def clean(self):
-        data = super().clean()
-        if data.get('password'):
-            user = User(username=data.get('username', ''), first_name=data.get('full_name', ''))
-            try:
-                password_validation.validate_password(data['password'], user)
-            except forms.ValidationError as error:
-                self.add_error('password', error)
-        return data
 
     def save(self):
         with transaction.atomic():
