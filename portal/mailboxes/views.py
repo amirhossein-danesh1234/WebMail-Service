@@ -9,6 +9,7 @@ from cryptography.fernet import InvalidToken
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.contrib.auth.models import User
 from django.contrib.auth.views import LoginView
 from django.db import IntegrityError, models, transaction
 from django.db.models import F
@@ -68,8 +69,14 @@ def home(request):
     if request.get_host().split(':')[0] == settings.ADMIN_HOST:
         if not request.user.is_staff:
             return HttpResponseNotFound()
-        template = 'kappa_admin.html' if settings.MANAGED_KAPPA else 'admin_home.html'
-        return render(request, template)
+        if settings.MANAGED_KAPPA:
+            if not request.user.is_superuser:
+                return HttpResponseNotFound()
+            return render(request, 'kappa_admin.html', {
+                'people': User.objects.filter(is_staff=False, is_active=True).order_by('first_name', 'username'),
+                'mailboxes': Mailbox.objects.order_by('address'),
+            })
+        return render(request, 'admin_home.html')
     if settings.MANAGED_KAPPA:
         grants = MailboxGrant.objects.filter(user=request.user).filter(
             models.Q(can_read=True) | models.Q(can_send=True)

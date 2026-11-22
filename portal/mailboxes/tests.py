@@ -15,7 +15,7 @@ from django.utils.http import urlsafe_base64_encode
 
 from . import mail
 from .forms import ComposeForm, ConnectForm
-from .models import LoginWindow, Mailbox, MailboxGrant, SendAttempt
+from .models import LoginWindow, Mailbox, MailboxGrant, PendingMailbox, SendAttempt
 
 
 @contextmanager
@@ -214,21 +214,58 @@ class KappaPermissionsTests(TestCase):
         self.assertEqual(self.client.get('/manage/', **self.admin_host).status_code, 302)
         self.client.force_login(self.admin)
         self.assertContains(self.client.get('/', **self.admin_host), 'مدیریت ایمیل کاپا')
-        self.assertEqual(self.client.get(f'/manage/auth/user/{self.user.pk}/change/', **self.admin_host).status_code, 200)
+        self.assertEqual(self.client.get(f'/people/{self.user.pk}/', **self.admin_host).status_code, 200)
+        self.assertEqual(self.client.get('/manage/', **self.admin_host).url, '/')
         self.assertEqual(self.client.get(self.base, **self.admin_host).status_code, 404)
 
+
     @patch('mailboxes.mail.connection', authenticated_mailbox)
-    def test_admin_registers_kappa_mailbox_and_controls_access_in_user_form(self):
+    @patch('mailboxes.provision.request_creation', side_effect=[OSError('temporary'), 'exists'])
+    def test_mailbox_local_part_only_and_retry_keeps_generated_credential(self, create):
+        path = '/mailboxes/new/'
+        self.assertEqual(self.client.get(path, **self.user_host).status_code, 404)
+        self.assertEqual(self.client.post(path, {'local_part': 'session'}, **self.admin_host).status_code, 404)
         self.client.force_login(self.admin)
-        path = '/manage/mailboxes/mailbox/add/'
-        fields = {'address': 'new@unilrn.ir', 'password': 'test-only-mail-password'}
-        self.assertEqual(self.client.post(path, fields, **self.admin_host).status_code, 200)
-        self.assertFalse(Mailbox.objects.filter(address=fields['address']).exists())
-        fields['address'] = 'New@kappaut.ir'
-        self.assertEqual(self.client.post(path, fields, **self.admin_host).status_code, 302)
-        box = Mailbox.objects.get(address='new@kappaut.ir')
-        self.assertIsNone(box.owner)
-        self.assertEqual(mail.unseal(box), fields['password'])
-        page = self.client.get(f'/manage/auth/user/{self.user.pk}/change/', **self.admin_host)
-        self.assertContains(page, 'mailboxgrant_set-0-can_read')
-        self.assertContains(page, 'mailboxgrant_set-0-can_send')
+        self.assertEqual(self.client.post(path, {'local_part': 'new@unilrn.ir'}, **self.admin_host).status_code, 200)
+        create.assert_not_called()
+        self.assertEqual(self.client.post(path, {'local_part': 'New.Box'}, **self.admin_host).status_code, 200)
+        self.assertFalse(Mailbox.objects.filter(address='new.box@kappaut.ir').exists())
+        pending = PendingMailbox.objects.get(address='new.box@kappaut.ir')
+        self.assertEqual(self.client.post(path, {'local_part': 'New.Box'}, **self.admin_host).status_code, 302)
+        box = Mailbox.objects.get(address=pending.address)
+        self.assertEqual(box.encrypted_credential, pending.encrypted_credential)
+        self.assertFalse(PendingMailbox.objects.filter(pk=pending.pk).exists())
+        self.assertEqual(create.call_args_list[0], create.call_args_list[1])
+        self.assertEqual(create.call_args.args[0], 'new.box')
+        self.assertEqual(self.client.post(path, {'local_part': 'new.box'}, **self.admin_host).status_code, 200)
+        self.assertEqual(create.call_count, 2)
+
+    def test_create_and_edit_user_from_single_form(self):
+        self.client.force_login(self.admin)
+        path = '/people/new/'
+        field = f'box_{self.box.pk}'
+        values = {'full_name': 'امیرحسین دانش', 'username': 'simple-user',
+                  'password': 'test-only-password-923!', field: 'read'}
+        page = self.client.get(path, **self.admin_host)
+        self.assertContains(page, 'kappa.css')
+        self.assertContains(page, 'خواندن صندوق و ارسال')
+        self.assertNotContains(page, 'فقط ارسال')
+        self.assertEqual(self.client.post(path, values, **self.admin_host).status_code, 302)
+        person = User.objects.get(username=values['username'])
+        self.assertEqual(person.get_full_name(), values['full_name'])
+        self.assertTrue(person.check_password(values['password']))
+        grant = MailboxGrant.objects.get(user=person, mailbox=self.box)
+        self.assertTrue(grant.can_read)
+        self.assertFalse(grant.can_send)
+        values.update(password='', **{field: 'send'})
+        path = f'/people/{person.pk}/'
+        self.assertEqual(self.client.post(path, values, **self.admin_host).status_code, 302)
+        grant.refresh_from_db()
+        self.assertTrue(grant.can_read and grant.can_send)
+        self.client.force_login(person)
+        self.assertContains(self.client.get('/', **self.user_host), 'kappa.css')
+        self.assertContains(self.client.get('/', **self.user_host), 'compose/')
+        self.client.force_login(self.admin)
+        values[field] = ''
+        self.assertEqual(self.client.post(path, values, **self.admin_host).status_code, 302)
+        self.assertFalse(MailboxGrant.objects.filter(pk=grant.pk).exists())

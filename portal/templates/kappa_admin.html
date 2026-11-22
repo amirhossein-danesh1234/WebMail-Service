@@ -2,15 +2,30 @@
 {% block content %}
 <h1>مدیریت ایمیل کاپا</h1>
 <div class="grid">
-  <article class="card">
-    <h2>کاربران و دسترسی‌ها</h2>
-    <p>نام و رمز ورود هر کاربر را تعیین کنید. سپس در صفحهٔ همان کاربر، دسترسی خواندن و ارسال را برای هر صندوق مشخص کنید.</p>
-    <a class="button" href="/manage/auth/user/">مدیریت کاربران</a>
-  </article>
-  <article class="card">
-    <h2>صندوق‌های ایمیل</h2>
-    <p>صندوق‌های موجود کاپا را با آدرس و رمز صندوق اضافه کنید. کاربران با رمز حساب خود وارد پنل می‌شوند.</p>
-    <a class="button" href="/manage/mailboxes/mailbox/">مدیریت صندوق‌ها</a>
-  </article>
+  <section class="card">
+    <div class="section-heading">
+      <h2>کاربران</h2>
+      <a class="button" href="{% url 'kappa_person_create' %}">کاربر جدید</a>
+    </div>
+    <ul class="admin-list">
+      {% for person in people %}
+      <li>
+        <div><strong>{{ person.get_full_name|default:person.username }}</strong><div class="muted"><bdi>{{ person.username }}</bdi></div></div>
+        <a href="{% url 'kappa_person_edit' person.pk %}" aria-label="ویرایش {{ person.username }}">ویرایش</a>
+      </li>
+      {% empty %}<li class="muted">هنوز کاربری تعریف نشده است.</li>{% endfor %}
+    </ul>
+  </section>
+  <section class="card">
+    <div class="section-heading">
+      <h2>صندوق‌ها</h2>
+      <a class="button" href="{% url 'kappa_mailbox_create' %}">صندوق جدید</a>
+    </div>
+    <ul class="admin-list">
+      {% for box in mailboxes %}
+      <li><bdi>{{ box.address }}</bdi></li>
+      {% empty %}<li class="muted">هنوز صندوقی ساخته نشده است.</li>{% endfor %}
+    </ul>
+  </section>
 </div>
 {% endblock %}

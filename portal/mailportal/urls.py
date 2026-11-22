@@ -1,10 +1,13 @@
 from django.contrib import admin
 from django.contrib.auth import views as auth
 from django.urls import path
-from mailboxes import views
+from mailboxes import managed, views
 
 urlpatterns = [
     path('healthz', views.health),
+    path('mailboxes/new/', managed.mailbox_create, name='kappa_mailbox_create'),
+    path('people/new/', managed.person_edit, name='kappa_person_create'),
+    path('people/<int:user_id>/', managed.person_edit, name='kappa_person_edit'),
     path('staff-gate/', views.staff_gate),
     path('manage/login/', views.PortalLoginView.as_view(), name='admin_login'),
     path('manage/', admin.site.urls),

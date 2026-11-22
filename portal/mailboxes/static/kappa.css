@@ -1,0 +1,37 @@
+@font-face {
+  font-family: Peyda;
+  src: url("./peyda/Peyda-Regular.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: Peyda;
+  src: url("./peyda/Peyda-Bold.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 600 900;
+  font-display: swap;
+}
+body { font-family: Peyda, Tahoma, sans-serif; }
+.section-heading, .admin-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.section-heading h2 { margin: 0; }
+.admin-list { list-style: none; padding: 0; margin: 16px 0 0; }
+.admin-list li { border-top: 1px solid var(--line); padding: 12px 0; }
+.email-address-input { display: flex; direction: ltr; align-items: center; gap: 10px; }
+.email-address-input input { min-width: 0; }
+.form-actions { margin-top: 24px; }
+.person-details { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+.person-details > :first-child { grid-column: 1 / -1; }
+.mail-access { min-inline-size: 0; margin: 24px 0 0; padding: 12px 16px; border: 1px solid var(--line); border-radius: 12px; }
+.mail-access legend { padding: 0 6px; font-weight: 700; }
+.access-row { display: grid; grid-template-columns: 1fr 1fr; align-items: center; gap: 8px 16px; padding: 8px 0; }
+.access-row label { margin: 0; overflow-wrap: anywhere; }
+.access-row + .access-row { border-top: 1px solid var(--line); }
+@media (max-width: 600px) {
+  .person-details, .access-row { grid-template-columns: 1fr; }
+}

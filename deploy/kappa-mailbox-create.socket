@@ -1,0 +1,13 @@
+[Unit]
+Description=Kappa mailbox provisioner socket
+
+[Socket]
+ListenStream=/run/kappa-mailbox-create.sock
+SocketUser=kappa-webmail-portal
+SocketMode=0600
+Accept=yes
+MaxConnections=6
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target

@@ -12,6 +12,11 @@ class Mailbox(models.Model):
         return self.address
 
 
+class PendingMailbox(models.Model):
+    address = models.EmailField(unique=True)
+    encrypted_credential = models.TextField(editable=False)
+
+
 class MailboxGrant(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     mailbox = models.ForeignKey(Mailbox, on_delete=models.CASCADE, related_name='grants', verbose_name='صندوق')

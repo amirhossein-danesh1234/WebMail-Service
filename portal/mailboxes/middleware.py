@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.http import HttpResponseNotFound
+from django.shortcuts import redirect
 
 
 class BoundariesMiddleware:
@@ -8,9 +9,12 @@ class BoundariesMiddleware:
 
     def __call__(self, request):
         host = request.get_host().split(':')[0]
-        if request.path.startswith(('/manage/', '/staff-gate/')) and host != settings.ADMIN_HOST:
+        if request.path.startswith(('/manage/', '/staff-gate/', '/mailboxes/', '/people/')) and host != settings.ADMIN_HOST:
             return HttpResponseNotFound()
         if settings.MANAGED_KAPPA:
+            request.kappa_portal = True
+            if host == settings.ADMIN_HOST and request.path.startswith('/manage/'):
+                return redirect('home') if request.method in ('GET', 'HEAD') else HttpResponseNotFound()
             if request.path == '/connect/' or request.path.startswith(('/admin/', '/webmail/')):
                 return HttpResponseNotFound()
             if host == settings.ADMIN_HOST and request.path.startswith(('/boxes/', '/invite/')):
